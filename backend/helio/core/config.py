@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     enphase_client_id: str = ""
     enphase_client_secret: str = ""
     enphase_system_id: str = ""
+    enphase_access_token: str = ""
+    enphase_refresh_token: str = ""
     fernet_key: str = ""
     nrel_api_key: str = ""
     irradiance_source: str = "nrel"
