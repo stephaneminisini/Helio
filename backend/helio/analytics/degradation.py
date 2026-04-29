@@ -80,9 +80,7 @@ async def estimate_lost_production(
             lost_fraction = (expected - pr) / expected
             total_lost_kwh += production * lost_fraction
 
-    lost_kwh = round(total_lost_kwh, 2)
-    lost_dollars = round(lost_kwh * rate_per_kwh, 4)
     return {
-        "lost_kwh": lost_kwh,
-        "lost_dollars": lost_dollars,
+        "lost_kwh": round(total_lost_kwh, 1),
+        "lost_dollars": round(total_lost_kwh * rate_per_kwh, 2),
     }

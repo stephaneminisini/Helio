@@ -13,10 +13,17 @@ class MonthlyPRPoint(BaseModel):
     is_anomaly: bool
 
 
+class AnnualRateEntry(BaseModel):
+    """Annual degradation stats for a single year."""
+
+    avg_pr: float
+    annual_drop: float | None
+
+
 class DegradationSummary(BaseModel):
     """Aggregated degradation metrics across all years."""
 
-    annual_rates: dict[int, dict]
+    annual_rates: dict[int, AnnualRateEntry]
     lost_kwh: float
     lost_dollars: float
     warranty_threshold: float

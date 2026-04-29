@@ -8,6 +8,7 @@ from loguru import logger
 from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.settings import router as settings_router
+from helio.core.config import settings
 
 
 @asynccontextmanager
@@ -29,9 +30,9 @@ app = FastAPI(title="Helio Monitor API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_origins,
+    allow_methods=["GET", "PUT"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(overview_router, prefix="/api")

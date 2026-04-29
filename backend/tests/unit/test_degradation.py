@@ -61,4 +61,4 @@ async def test_estimate_lost_production_returns_kwh_and_dollars():
     )
     assert result["lost_kwh"] > 0
     assert result["lost_dollars"] > 0
-    assert result["lost_dollars"] == pytest.approx(result["lost_kwh"] * 0.15, rel=1e-3)
+    assert result["lost_dollars"] == pytest.approx(result["lost_kwh"] * 0.15, abs=0.01)

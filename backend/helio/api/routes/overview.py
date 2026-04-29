@@ -61,7 +61,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
     month_start = today.replace(day=1)
     year_start = today.replace(month=1, day=1)
 
-    async def get_day_kwh(d: date) -> float:
+    async def get_day_kwh(d: date) -> float | None:
         row = (
             await db.execute(
                 select(DailySummary).where(
@@ -70,7 +70,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
                 )
             )
         ).scalar_one_or_none()
-        return float(row.production_kwh or 0) if row else 0.0
+        return float(row.production_kwh or 0) if row else None
 
     async def get_period_kwh(start: date, end: date) -> float:
         result = await db.execute(
@@ -82,7 +82,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
         )
         return float(result.scalar() or 0)
 
-    today_kwh = await get_day_kwh(today)
+    today_kwh = await get_day_kwh(today) or 0.0
     lyr_day_kwh = await get_day_kwh(same_day_lyr)
     this_month = await get_period_kwh(month_start, today)
     last_month_start = (month_start - timedelta(days=1)).replace(day=1)
@@ -115,17 +115,17 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
         current_power_w=None,
         day_comparison=ComparisonPair(
             current_kwh=today_kwh,
-            prior_kwh=lyr_day_kwh if lyr_day_kwh else None,
+            prior_kwh=lyr_day_kwh,
             pct_change=_pct_change(today_kwh, lyr_day_kwh),
         ),
         month_comparison=ComparisonPair(
             current_kwh=this_month,
-            prior_kwh=last_month if last_month else None,
+            prior_kwh=last_month if last_month > 0 else None,
             pct_change=_pct_change(this_month, last_month),
         ),
         ytd_comparison=ComparisonPair(
             current_kwh=this_ytd,
-            prior_kwh=last_ytd if last_ytd else None,
+            prior_kwh=last_ytd if last_ytd > 0 else None,
             pct_change=_pct_change(this_ytd, last_ytd),
         ),
         best_day_kwh=float(best.production_kwh) if best else None,

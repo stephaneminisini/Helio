@@ -23,7 +23,7 @@ class SettingsResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    """Request body for PUT /api/settings."""
+    """Request body for PUT /api/settings. All fields optional for partial updates."""
 
     name: str | None = None
     location: str | None = None
