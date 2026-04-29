@@ -37,7 +37,6 @@ async def backfill() -> None:
             system_id=settings.enphase_system_id,
             access_token=settings.enphase_access_token,
             refresh_token=settings.enphase_refresh_token,
-            fernet_key=settings.fernet_key,
         )
         await client.refresh_access_token()
 

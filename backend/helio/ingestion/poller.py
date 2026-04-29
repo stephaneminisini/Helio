@@ -1,5 +1,6 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
+import httpx
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,7 +60,9 @@ async def poll_intervals(
         Tuple of (records_fetched, records_inserted).
 
     Raises:
-        Exception: Re-raises any exception from the Enphase client after logging.
+        RuntimeError: On rate-limit exhaustion from the Enphase API.
+        httpx.HTTPStatusError: On non-retryable HTTP errors from the Enphase API.
+        Exception: Re-raises any unexpected error after logging.
     """
     started_at = datetime.now(tz=UTC)
     poll_log = PollLog(
@@ -76,14 +79,20 @@ async def poll_intervals(
         records_fetched = len(intervals)
         records_inserted = 0
 
-        for iv in intervals:
-            existing = await session.execute(
-                select(EnergyInterval).where(
-                    EnergyInterval.system_id == system_id,
-                    EnergyInterval.interval_start == iv.interval_start,
-                )
+        # Load all existing timestamps for this date range in one query
+        range_start = datetime.combine(start_date, time.min, tzinfo=UTC)
+        range_end = datetime.combine(end_date, time.max, tzinfo=UTC)
+        existing_timestamps_result = await session.execute(
+            select(EnergyInterval.interval_start).where(
+                EnergyInterval.system_id == system_id,
+                EnergyInterval.interval_start >= range_start,
+                EnergyInterval.interval_start <= range_end,
             )
-            if existing.scalar_one_or_none() is None:
+        )
+        existing_timestamps = set(existing_timestamps_result.scalars().all())
+
+        for iv in intervals:
+            if iv.interval_start not in existing_timestamps:
                 session.add(
                     EnergyInterval(
                         system_id=system_id,
@@ -110,12 +119,19 @@ async def poll_intervals(
         )
         return records_fetched, records_inserted
 
-    except Exception as exc:
+    except (RuntimeError, httpx.HTTPStatusError) as exc:
         poll_log.status = "error"
         poll_log.error_message = str(exc)
         poll_log.completed_at = datetime.now(tz=UTC)
         await session.commit()
         logger.error("Poll failed for {}-{}: {}", start_date, end_date, exc)
+        raise
+    except Exception as exc:
+        poll_log.status = "error"
+        poll_log.error_message = f"Unexpected error: {exc}"
+        poll_log.completed_at = datetime.now(tz=UTC)
+        await session.commit()
+        logger.error("Unexpected poll error for {}-{}: {}", start_date, end_date, exc)
         raise
 
 

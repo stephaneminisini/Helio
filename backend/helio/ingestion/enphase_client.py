@@ -34,7 +34,6 @@ class EnphaseClient:
         system_id: Enphase system ID to query.
         access_token: Current OAuth access token (may be empty on first run).
         refresh_token: OAuth refresh token for renewing access.
-        fernet_key: Fernet key used to encrypt tokens before DB storage.
     """
 
     def __init__(
@@ -44,14 +43,12 @@ class EnphaseClient:
         system_id: str,
         access_token: str,
         refresh_token: str,
-        fernet_key: str,
     ) -> None:
         self._client_id = client_id
         self._client_secret = client_secret
         self._system_id = system_id
         self._access_token = access_token
         self._refresh_token = refresh_token
-        self._fernet_key = fernet_key
 
     async def _request(
         self,

@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.base import SchedulerAlreadyRunningError
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -24,8 +25,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     try:
         start_scheduler()
+    except SchedulerAlreadyRunningError:
+        logger.warning("Scheduler already running")
     except Exception as exc:
         logger.error("Scheduler failed to start: {}", exc)
+        raise
     logger.info("Helio Monitor API starting")
     yield
     logger.info("Helio Monitor API shutting down")

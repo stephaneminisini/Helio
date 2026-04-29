@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 from sqlalchemy import select
@@ -37,19 +38,23 @@ async def _daily_poll() -> None:
             system_id=settings.enphase_system_id,
             access_token=settings.enphase_access_token,
             refresh_token=settings.enphase_refresh_token,
-            fernet_key=settings.fernet_key,
         )
 
         try:
             await client.refresh_access_token()
-        except Exception as exc:
+        except (RuntimeError, httpx.HTTPStatusError) as exc:
             logger.error("Token refresh failed, skipping daily poll: {}", exc)
+            return
+        except Exception as exc:
+            logger.error("Unexpected token refresh error: {}", exc)
             return
 
         try:
             await poll_intervals(session, client, system.id, yesterday, yesterday)
-        except Exception as exc:
+        except (RuntimeError, httpx.HTTPStatusError) as exc:
             logger.error("Interval poll failed for {}: {}", yesterday, exc)
+        except Exception as exc:
+            logger.error("Unexpected interval poll error for {}: {}", yesterday, exc)
 
         irr_client: NRELClient | NASAClient
         if settings.irradiance_source == "nrel":
@@ -69,20 +74,28 @@ async def _daily_poll() -> None:
                 yesterday,
                 settings.irradiance_source,
             )
-        except Exception as exc:
+        except (RuntimeError, httpx.HTTPStatusError) as exc:
             logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+        except Exception as exc:
+            logger.error("Unexpected irradiance poll error for {}: {}", yesterday, exc)
 
         try:
             await build_daily_summary(session, system.id, yesterday)
-        except Exception as exc:
+        except (RuntimeError, ValueError) as exc:
             logger.error("Daily summary build failed for {}: {}", yesterday, exc)
+        except Exception as exc:
+            logger.error("Unexpected daily summary error for {}: {}", yesterday, exc)
 
         if yesterday.day == 1:
             prev_month = (yesterday - timedelta(days=1)).replace(day=1)
             try:
                 await build_monthly_summary(session, system.id, prev_month, system)
-            except Exception as exc:
+            except (RuntimeError, ValueError) as exc:
                 logger.error("Monthly summary build failed for {}: {}", prev_month, exc)
+            except Exception as exc:
+                logger.error(
+                    "Unexpected monthly summary error for {}: {}", prev_month, exc
+                )
 
     logger.info("Daily poll complete for {}", yesterday)
 
