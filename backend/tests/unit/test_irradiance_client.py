@@ -14,6 +14,7 @@ def test_compute_poa_returns_positive_value():
         tilt=30.0,
         azimuth=180.0,
         latitude=45.0,
+        longitude=-73.6,
         target_date=date(2024, 6, 21),
     )
     assert poa > 0
@@ -26,6 +27,7 @@ def test_compute_poa_zero_ghi_returns_zero():
         tilt=30.0,
         azimuth=180.0,
         latitude=45.0,
+        longitude=-73.6,
         target_date=date(2024, 6, 21),
     )
     assert poa == 0.0
