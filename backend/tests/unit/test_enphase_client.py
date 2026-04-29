@@ -19,7 +19,6 @@ def client():
         system_id="12345",
         access_token="test-token",
         refresh_token="test-refresh",
-        fernet_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     )
 
 
@@ -67,3 +66,31 @@ async def test_get_intervals_raises_after_max_retries(client):
 
     with pytest.raises(RuntimeError, match="rate limit"):
         await client.get_intervals(date(2024, 4, 28), date(2024, 4, 28))
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_refresh_access_token_updates_stored_token(client):
+    respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(
+            200,
+            json={"access_token": "new-token-123", "refresh_token": "new-refresh-456"},
+        )
+    )
+
+    new_token = await client.refresh_access_token()
+
+    assert new_token == "new-token-123"
+    assert client._access_token == "new-token-123"
+    assert client._refresh_token == "new-refresh-456"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_refresh_access_token_raises_on_missing_token(client):
+    respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(200, json={"error": "invalid_grant"})
+    )
+
+    with pytest.raises(ValueError, match="access_token"):
+        await client.refresh_access_token()

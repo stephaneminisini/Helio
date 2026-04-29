@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import date
 
 import httpx
-import pandas as pd
+import pandas as pd  # required by pvlib internals
 import pvlib
 from loguru import logger
 
@@ -98,15 +98,21 @@ class NRELClient(IrradianceClient):
     async def get_daily_irradiance(
         self, latitude: float, longitude: float, target_date: date
     ) -> dict[str, float]:
-        """Fetch daily GHI and DNI from NREL Solar Resource API.
+        """Fetch long-term annual average GHI and DNI from NREL Solar Resource API.
+
+        Note: The NREL Solar Resource API v1 returns long-term statistical averages
+        (typically 30-year TMY data), not actual daily measured values. The
+        target_date parameter is accepted for interface compatibility but does not
+        affect the returned values. All days at the same location return the same
+        annual average irradiance. Use NASAClient for actual daily historical data.
 
         Args:
             latitude: Site latitude in decimal degrees.
             longitude: Site longitude in decimal degrees.
-            target_date: Date to fetch irradiance for (used for logging).
+            target_date: Accepted for interface compatibility; does not affect result.
 
         Returns:
-            Dict with keys 'ghi' and 'dni' in kWh/m2/day.
+            Dict with keys 'ghi' and 'dni' in kWh/m2/day (annual averages).
 
         Raises:
             httpx.HTTPStatusError: On API errors.
