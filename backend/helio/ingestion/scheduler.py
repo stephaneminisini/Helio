@@ -35,12 +35,21 @@ async def _daily_poll() -> None:
             client_id=settings.enphase_client_id,
             client_secret=settings.enphase_client_secret,
             system_id=settings.enphase_system_id,
-            access_token="",
-            refresh_token="",
+            access_token=settings.enphase_access_token,
+            refresh_token=settings.enphase_refresh_token,
             fernet_key=settings.fernet_key,
         )
-        await client.refresh_access_token()
-        await poll_intervals(session, client, system.id, yesterday, yesterday)
+
+        try:
+            await client.refresh_access_token()
+        except Exception as exc:
+            logger.error("Token refresh failed, skipping daily poll: {}", exc)
+            return
+
+        try:
+            await poll_intervals(session, client, system.id, yesterday, yesterday)
+        except Exception as exc:
+            logger.error("Interval poll failed for {}: {}", yesterday, exc)
 
         irr_client: NRELClient | NASAClient
         if settings.irradiance_source == "nrel":
@@ -48,23 +57,32 @@ async def _daily_poll() -> None:
         else:
             irr_client = NASAClient()
 
-        await poll_irradiance(
-            session,
-            irr_client,
-            system.id,
-            float(system.latitude or 0),
-            float(system.longitude or 0),
-            float(system.tilt_angle_deg or 30),
-            float(system.azimuth_deg or 180),
-            yesterday,
-            settings.irradiance_source,
-        )
+        try:
+            await poll_irradiance(
+                session,
+                irr_client,
+                system.id,
+                float(system.latitude or 0),
+                float(system.longitude or 0),
+                float(system.tilt_angle_deg or 30),
+                float(system.azimuth_deg or 180),
+                yesterday,
+                settings.irradiance_source,
+            )
+        except Exception as exc:
+            logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
 
-        await build_daily_summary(session, system.id, yesterday)
+        try:
+            await build_daily_summary(session, system.id, yesterday)
+        except Exception as exc:
+            logger.error("Daily summary build failed for {}: {}", yesterday, exc)
 
         if yesterday.day == 1:
             prev_month = (yesterday - timedelta(days=1)).replace(day=1)
-            await build_monthly_summary(session, system.id, prev_month, system)
+            try:
+                await build_monthly_summary(session, system.id, prev_month, system)
+            except Exception as exc:
+                logger.error("Monthly summary build failed for {}: {}", prev_month, exc)
 
     logger.info("Daily poll complete for {}", yesterday)
 

@@ -9,7 +9,7 @@ from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.settings import router as settings_router
 from helio.core.config import settings
-from helio.ingestion.scheduler import start_scheduler
+from helio.ingestion.scheduler import scheduler, start_scheduler
 
 
 @asynccontextmanager
@@ -25,10 +25,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     try:
         start_scheduler()
     except Exception as exc:
-        logger.warning("Scheduler failed to start: {}", exc)
+        logger.error("Scheduler failed to start: {}", exc)
     logger.info("Helio Monitor API starting")
     yield
     logger.info("Helio Monitor API shutting down")
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Helio Monitor API", version="0.1.0", lifespan=lifespan)

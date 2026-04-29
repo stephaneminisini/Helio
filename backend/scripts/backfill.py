@@ -35,8 +35,8 @@ async def backfill() -> None:
             client_id=settings.enphase_client_id,
             client_secret=settings.enphase_client_secret,
             system_id=settings.enphase_system_id,
-            access_token="",
-            refresh_token="",
+            access_token=settings.enphase_access_token,
+            refresh_token=settings.enphase_refresh_token,
             fernet_key=settings.fernet_key,
         )
         await client.refresh_access_token()
@@ -56,19 +56,22 @@ async def backfill() -> None:
 
         for day in gaps:
             logger.info("Backfilling {}", day)
-            await poll_intervals(session, client, system.id, day, day)
-            await poll_irradiance(
-                session,
-                irr_client,
-                system.id,
-                float(system.latitude or 0),
-                float(system.longitude or 0),
-                float(system.tilt_angle_deg or 30),
-                float(system.azimuth_deg or 180),
-                day,
-                settings.irradiance_source,
-            )
-            await build_daily_summary(session, system.id, day)
+            try:
+                await poll_intervals(session, client, system.id, day, day)
+                await poll_irradiance(
+                    session,
+                    irr_client,
+                    system.id,
+                    float(system.latitude or 0),
+                    float(system.longitude or 0),
+                    float(system.tilt_angle_deg or 30),
+                    float(system.azimuth_deg or 180),
+                    day,
+                    settings.irradiance_source,
+                )
+                await build_daily_summary(session, system.id, day)
+            except Exception as exc:
+                logger.error("Backfill failed for {}: {}", day, exc)
             await asyncio.sleep(0.5)
 
         logger.info("Backfill complete")
