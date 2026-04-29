@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -71,7 +72,9 @@ class System(Base):
     degradation_rate: Mapped[Decimal] = mapped_column(
         Numeric(5, 3), default=Decimal("0.5"), server_default="0.500"
     )
-    irradiance_source: Mapped[str] = mapped_column(String(32), default="nrel")
+    irradiance_source: Mapped[str] = mapped_column(
+        String(32), default="nrel", server_default="nrel"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -108,7 +111,10 @@ class EnergyInterval(Base):
     """
 
     __tablename__ = "energy_intervals"
-    __table_args__ = (UniqueConstraint("system_id", "interval_start"),)
+    __table_args__ = (
+        UniqueConstraint("system_id", "interval_start"),
+        Index("idx_intervals_system_start", "system_id", "interval_start"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     system_id: Mapped[int] = mapped_column(ForeignKey("systems.id"), nullable=False)
@@ -147,7 +153,10 @@ class DailySummary(Base):
     """
 
     __tablename__ = "daily_summaries"
-    __table_args__ = (UniqueConstraint("system_id", "day"),)
+    __table_args__ = (
+        UniqueConstraint("system_id", "day"),
+        Index("idx_daily_system_day", "system_id", "day"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     system_id: Mapped[int] = mapped_column(ForeignKey("systems.id"), nullable=False)
@@ -189,7 +198,10 @@ class MonthlySummary(Base):
     """
 
     __tablename__ = "monthly_summaries"
-    __table_args__ = (UniqueConstraint("system_id", "month"),)
+    __table_args__ = (
+        UniqueConstraint("system_id", "month"),
+        Index("idx_monthly_system_month", "system_id", "month"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     system_id: Mapped[int] = mapped_column(ForeignKey("systems.id"), nullable=False)
