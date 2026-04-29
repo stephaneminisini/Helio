@@ -1,0 +1,49 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
+
+from helio.api.routes.efficiency import router as efficiency_router
+from helio.api.routes.overview import router as overview_router
+from helio.api.routes.settings import router as settings_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """FastAPI lifespan context manager -- startup and shutdown hooks.
+
+    Args:
+        app: The FastAPI application instance.
+
+    Yields:
+        None during the application's lifetime.
+    """
+    logger.info("Helio Monitor API starting")
+    yield
+    logger.info("Helio Monitor API shutting down")
+
+
+app = FastAPI(title="Helio Monitor API", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(overview_router, prefix="/api")
+app.include_router(efficiency_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+
+
+@app.get("/api/health")
+async def health() -> dict:
+    """Health check endpoint.
+
+    Returns:
+        Status dict with key 'status' = 'ok'.
+    """
+    return {"status": "ok"}
