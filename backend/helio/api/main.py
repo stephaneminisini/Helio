@@ -9,11 +9,12 @@ from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.settings import router as settings_router
 from helio.core.config import settings
+from helio.ingestion.scheduler import start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """FastAPI lifespan context manager -- startup and shutdown hooks.
+    """FastAPI lifespan context manager - startup and shutdown hooks.
 
     Args:
         app: The FastAPI application instance.
@@ -21,6 +22,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     Yields:
         None during the application's lifetime.
     """
+    try:
+        start_scheduler()
+    except Exception as exc:
+        logger.warning("Scheduler failed to start: {}", exc)
     logger.info("Helio Monitor API starting")
     yield
     logger.info("Helio Monitor API shutting down")
