@@ -1,0 +1,70 @@
+# Contributing to Helio Monitor
+
+Thank you for your interest in contributing! Helio Monitor is a personal project that welcomes community improvements.
+
+---
+
+## Ways to Contribute
+
+- **Bug reports** — Open an issue describing what happened, what you expected, and your deployment method
+- **Feature requests** — Open an issue with the `enhancement` label
+- **Pull requests** — Bug fixes, documentation improvements, and small features are welcome
+- **Translations** — Help make the UI accessible in other languages
+
+---
+
+## Development Setup
+
+```bash
+git clone https://github.com/YOUR_USERNAME/helio-monitor.git
+cd helio-monitor
+cp .env.example .env
+# Fill in .env with test credentials or use the mock mode (see below)
+make up
+make migrate
+```
+
+### Mock Mode
+
+If you don't have an Enphase system, you can run with seeded mock data:
+
+```bash
+make seed-mock
+```
+
+This inserts 3 years of synthetic production data so you can develop against a realistic dataset without API access.
+
+---
+
+## Pull Request Guidelines
+
+1. Fork the repository and create a branch from `main`
+2. Keep PRs focused — one feature or fix per PR
+3. Add or update tests for any changed logic
+4. Run `make test` and ensure all tests pass before submitting
+5. Update relevant documentation if behavior changes
+6. Write a clear PR description explaining what changed and why
+
+---
+
+## Code Style
+
+- **Python:** Black formatting, isort for imports (`make lint` runs both)
+- **TypeScript/React:** Prettier formatting (`make lint-frontend`)
+- No commented-out code in PRs
+
+---
+
+## Reporting Security Issues
+
+Please do not open public issues for security vulnerabilities. Email the maintainer directly (see GitHub profile). Security issues will be addressed within 72 hours.
+
+---
+
+## ☕ Non-Code Contributions
+
+If this project has been useful to you but you don't want to contribute code, consider:
+
+- ⭐ Starring the repo
+- Sharing it with other solar owners
+- [Buying me a coffee](https://www.buymeacoffee.com/YOUR_USERNAME)
