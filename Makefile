@@ -167,14 +167,14 @@ test-coverage: ## Run tests with coverage report
 	$(COMPOSE) exec $(API_SERVICE) pytest tests/ --cov=helio --cov-report=term-missing
 
 .PHONY: lint
-lint: ## Run Black + isort linters
-	$(COMPOSE) exec $(API_SERVICE) black helio/ tests/
-	$(COMPOSE) exec $(API_SERVICE) isort helio/ tests/
+lint: ## Format and lint with ruff
+	$(COMPOSE) exec $(API_SERVICE) uv run ruff format helio/ tests/
+	$(COMPOSE) exec $(API_SERVICE) uv run ruff check helio/ tests/
 
 .PHONY: lint-check
-lint-check: ## Check formatting without making changes (for CI)
-	$(COMPOSE) exec $(API_SERVICE) black --check helio/ tests/
-	$(COMPOSE) exec $(API_SERVICE) isort --check-only helio/ tests/
+lint-check: ## Check formatting and lint without making changes (for CI)
+	$(COMPOSE) exec $(API_SERVICE) uv run ruff format --check helio/ tests/
+	$(COMPOSE) exec $(API_SERVICE) uv run ruff check helio/ tests/
 
 # ── Updates ───────────────────────────────────────────────────────────────────
 

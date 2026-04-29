@@ -64,7 +64,7 @@ async def test_detect_gaps_no_gaps():
 @pytest.mark.asyncio
 async def test_poll_intervals_inserts_new_records():
     mock_session = AsyncMock()
-    # execute is called once with batch timestamp query: returns empty set (no existing records)
+    # execute: batch timestamp query returns empty set (no existing records)
     mock_session.execute = AsyncMock(
         side_effect=[
             MagicMock(
