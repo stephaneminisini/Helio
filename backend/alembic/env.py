@@ -10,8 +10,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import Base after models are defined (Phase 1 will populate this)
-target_metadata = None
+from helio.db.models import Base  # noqa: F401 — registers all models
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
