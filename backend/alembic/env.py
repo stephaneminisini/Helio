@@ -1,16 +1,17 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
+
+from alembic import context
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from helio.db.models import Base  # noqa: F401 — registers all models
+from helio.db.models import Base  # noqa: F401, E402 - registers all models
 
 target_metadata = Base.metadata
 
