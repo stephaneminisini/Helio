@@ -56,16 +56,36 @@ async def build_daily_summary(
         None,
     )
 
-    row = DailySummary(
-        system_id=system_id,
-        day=day,
-        production_kwh=Decimal(str(round(total_wh / 1000, 3))),
-        peak_power_w=Decimal(str(round(peak_wh * 4, 1))),
-        peak_power_at=peak_at,
-        interval_count=len(intervals),
-        is_complete=len(intervals) >= 88,
-    )
-    await session.merge(row)
+    FULL_DAY_INTERVAL_COUNT = 88  # 96 intervals per day minus tolerance for edge hours
+
+    existing = (
+        await session.execute(
+            select(DailySummary).where(
+                DailySummary.system_id == system_id,
+                DailySummary.day == day,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing is None:
+        row = DailySummary(
+            system_id=system_id,
+            day=day,
+            production_kwh=Decimal(str(round(total_wh / 1000, 3))),
+            peak_power_w=Decimal(str(round(peak_wh * 4, 1))),
+            peak_power_at=peak_at,
+            interval_count=len(intervals),
+            is_complete=len(intervals) >= FULL_DAY_INTERVAL_COUNT,
+        )
+        session.add(row)
+    else:
+        existing.production_kwh = Decimal(str(round(total_wh / 1000, 3)))
+        existing.peak_power_w = Decimal(str(round(peak_wh * 4, 1)))
+        existing.peak_power_at = peak_at
+        existing.interval_count = len(intervals)
+        existing.is_complete = len(intervals) >= FULL_DAY_INTERVAL_COUNT
+        row = existing
+
     await session.commit()
     logger.info(
         "Daily summary built for system={} day={} kwh={}",
@@ -145,17 +165,36 @@ async def build_monthly_summary(
                 f"below expected {float(expected_pr):.1%}"
             )
 
-    row = MonthlySummary(
-        system_id=system_id,
-        month=month,
-        production_kwh=production_kwh,
-        theoretical_kwh=theoretical_kwh,
-        performance_ratio=performance_ratio,
-        expected_pr=expected_pr,
-        is_anomaly=is_anomaly,
-        anomaly_reason=anomaly_reason,
-    )
-    await session.merge(row)
+    existing_monthly = (
+        await session.execute(
+            select(MonthlySummary).where(
+                MonthlySummary.system_id == system_id,
+                MonthlySummary.month == month,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing_monthly is None:
+        row = MonthlySummary(
+            system_id=system_id,
+            month=month,
+            production_kwh=production_kwh,
+            theoretical_kwh=theoretical_kwh,
+            performance_ratio=performance_ratio,
+            expected_pr=expected_pr,
+            is_anomaly=is_anomaly,
+            anomaly_reason=anomaly_reason,
+        )
+        session.add(row)
+    else:
+        existing_monthly.production_kwh = production_kwh
+        existing_monthly.theoretical_kwh = theoretical_kwh
+        existing_monthly.performance_ratio = performance_ratio
+        existing_monthly.expected_pr = expected_pr
+        existing_monthly.is_anomaly = is_anomaly
+        existing_monthly.anomaly_reason = anomaly_reason
+        row = existing_monthly
+
     await session.commit()
     logger.info(
         "Monthly summary built for system={} month={} PR={}",
