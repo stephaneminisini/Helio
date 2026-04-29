@@ -1,4 +1,3 @@
-import asyncio
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
@@ -86,37 +85,29 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
     last_month_start = (month_start - timedelta(days=1)).replace(day=1)
     last_month_end = month_start - timedelta(days=1)
 
-    (
-        today_kwh_raw,
-        lyr_day_kwh,
-        this_month,
-        last_month,
-        this_ytd,
-        last_ytd,
-        best,
-        all_time_result,
-    ) = await asyncio.gather(
-        get_day_kwh(today),
-        get_day_kwh(same_day_lyr),
-        get_period_kwh(month_start, today),
-        get_period_kwh(last_month_start, last_month_end),
-        get_period_kwh(year_start, today),
-        get_period_kwh(year_start.replace(year=year_start.year - 1), same_day_lyr),
-        db.execute(
-            select(DailySummary)
-            .where(DailySummary.system_id == system.id)
-            .order_by(DailySummary.production_kwh.desc())
-            .limit(1)
-        ),
-        db.execute(
-            select(func.sum(DailySummary.production_kwh)).where(
-                DailySummary.system_id == system.id
-            )
-        ),
+    # SQLAlchemy AsyncSession is not safe for concurrent use; queries run sequentially
+    today_kwh_raw = await get_day_kwh(today)
+    lyr_day_kwh = await get_day_kwh(same_day_lyr)
+    this_month = await get_period_kwh(month_start, today)
+    last_month = await get_period_kwh(last_month_start, last_month_end)
+    this_ytd = await get_period_kwh(year_start, today)
+    last_ytd = await get_period_kwh(
+        year_start.replace(year=year_start.year - 1), same_day_lyr
+    )
+    best_result = await db.execute(
+        select(DailySummary)
+        .where(DailySummary.system_id == system.id)
+        .order_by(DailySummary.production_kwh.desc())
+        .limit(1)
+    )
+    all_time_result = await db.execute(
+        select(func.sum(DailySummary.production_kwh)).where(
+            DailySummary.system_id == system.id
+        )
     )
 
     today_kwh = today_kwh_raw if today_kwh_raw is not None else 0.0
-    best_row = best.scalar_one_or_none()
+    best_row = best_result.scalar_one_or_none()
     all_time_kwh = float(all_time_result.scalar() or 0)
 
     return OverviewResponse(
