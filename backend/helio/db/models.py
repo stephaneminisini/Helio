@@ -54,7 +54,9 @@ class System(Base):
     __tablename__ = "systems"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    enphase_system_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    enphase_system_id: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False
+    )
     name: Mapped[str | None] = mapped_column(String(128))
     location: Mapped[str | None] = mapped_column(String(256))
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
@@ -66,17 +68,27 @@ class System(Base):
     install_date: Mapped[date] = mapped_column(Date, nullable=False)
     tilt_angle_deg: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     azimuth_deg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
-    degradation_rate: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("0.5"))
+    degradation_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), default=Decimal("0.5"), server_default="0.500"
+    )
     irradiance_source: Mapped[str] = mapped_column(String(32), default="nrel")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     intervals: Mapped[list["EnergyInterval"]] = relationship(back_populates="system")
-    daily_summaries: Mapped[list["DailySummary"]] = relationship(back_populates="system")
-    monthly_summaries: Mapped[list["MonthlySummary"]] = relationship(back_populates="system")
-    irradiance_records: Mapped[list["Irradiance"]] = relationship(back_populates="system")
+    daily_summaries: Mapped[list["DailySummary"]] = relationship(
+        back_populates="system"
+    )
+    monthly_summaries: Mapped[list["MonthlySummary"]] = relationship(
+        back_populates="system"
+    )
+    irradiance_records: Mapped[list["Irradiance"]] = relationship(
+        back_populates="system"
+    )
     poll_logs: Mapped[list["PollLog"]] = relationship(back_populates="system")
 
 
@@ -100,12 +112,18 @@ class EnergyInterval(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     system_id: Mapped[int] = mapped_column(ForeignKey("systems.id"), nullable=False)
-    interval_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=900)
+    interval_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    duration_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=900, server_default="900"
+    )
     production_wh: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     consumption_wh: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     net_wh: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     system: Mapped["System"] = relationship(back_populates="intervals")
 
@@ -139,8 +157,12 @@ class DailySummary(Base):
     peak_power_w: Mapped[Decimal | None] = mapped_column(Numeric(8, 1))
     peak_power_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     interval_count: Mapped[int | None] = mapped_column(Integer)
-    is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_complete: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -176,9 +198,13 @@ class MonthlySummary(Base):
     theoretical_kwh: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     performance_ratio: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     expected_pr: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
-    is_anomaly: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_anomaly: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     anomaly_reason: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -210,8 +236,10 @@ class Irradiance(Base):
     ghi_kwh_m2: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     dni_kwh_m2: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     poa_kwh_m2: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
-    source: Mapped[str | None] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     system: Mapped["System"] = relationship(back_populates="irradiance_records")
 
@@ -239,11 +267,15 @@ class PollLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     system_id: Mapped[int | None] = mapped_column(ForeignKey("systems.id"))
     poll_type: Mapped[str | None] = mapped_column(String(32))
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str | None] = mapped_column(String(16))
-    records_fetched: Mapped[int] = mapped_column(Integer, default=0)
-    records_inserted: Mapped[int] = mapped_column(Integer, default=0)
+    records_fetched: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    records_inserted: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     date_range_start: Mapped[date | None] = mapped_column(Date)
     date_range_end: Mapped[date | None] = mapped_column(Date)

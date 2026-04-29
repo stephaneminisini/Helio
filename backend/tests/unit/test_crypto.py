@@ -1,7 +1,7 @@
 import pytest
 from cryptography.fernet import InvalidToken
 
-from helio.core.crypto import encrypt, decrypt
+from helio.core.crypto import decrypt, encrypt
 
 
 def test_encrypt_decrypt_roundtrip():
