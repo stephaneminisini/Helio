@@ -56,7 +56,7 @@ async def test_build_daily_summary_aggregates_correctly():
 
 @pytest.mark.asyncio
 async def test_build_daily_summary_updates_existing_row():
-    """Test update path: existing row found, attributes updated, session.add not called."""
+    """Test update path: existing row found, attributes updated, add not called."""
     mock_session = AsyncMock()
     mock_intervals = [
         MagicMock(
@@ -93,7 +93,7 @@ async def test_build_daily_summary_updates_existing_row():
 
 @pytest.mark.asyncio
 async def test_build_monthly_summary_calculates_pr():
-    """Test insert path: no existing row, session.add is called with correct PR values."""
+    """Test insert path: no existing row, session.add called with correct PR values."""
     mock_session = AsyncMock()
 
     daily_rows = [
@@ -154,7 +154,7 @@ async def test_build_monthly_summary_calculates_pr():
 
 @pytest.mark.asyncio
 async def test_build_monthly_summary_updates_existing_row():
-    """Test update path: existing monthly row found, attributes updated, add not called."""
+    """Test update path: existing monthly row found, attributes updated."""
     mock_session = AsyncMock()
 
     daily_rows = [MagicMock(production_kwh=Decimal("40"))]
