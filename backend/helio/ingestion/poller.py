@@ -120,16 +120,20 @@ async def poll_intervals(
         return records_fetched, records_inserted
 
     except (RuntimeError, httpx.HTTPStatusError) as exc:
+        await session.rollback()
         poll_log.status = "error"
         poll_log.error_message = str(exc)
         poll_log.completed_at = datetime.now(tz=UTC)
+        session.add(poll_log)
         await session.commit()
         logger.error("Poll failed for {}-{}: {}", start_date, end_date, exc)
         raise
     except Exception as exc:
+        await session.rollback()
         poll_log.status = "error"
         poll_log.error_message = f"Unexpected error: {exc}"
         poll_log.completed_at = datetime.now(tz=UTC)
+        session.add(poll_log)
         await session.commit()
         logger.error("Unexpected poll error for {}-{}: {}", start_date, end_date, exc)
         raise
