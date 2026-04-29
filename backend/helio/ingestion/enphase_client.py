@@ -75,23 +75,29 @@ class EnphaseClient:
         """
         headers = {"Authorization": f"Bearer {self._access_token}"}
         response: httpx.Response | None = None
-        for attempt in range(MAX_RETRIES):
-            async with httpx.AsyncClient() as http:
+        async with httpx.AsyncClient() as http:
+            for attempt in range(MAX_RETRIES):
                 response = await http.request(
                     method, url, params=params, headers=headers
                 )
-            if response.status_code == 429:
-                wait = 2**attempt
-                logger.warning("Rate limited by Enphase API, retrying in {}s", wait)
-                if attempt == MAX_RETRIES - 1:
-                    body = response.json()
-                    raise RuntimeError(
-                        body.get("message", "rate limited by Enphase API")
+                if response.status_code in (429, 503):
+                    if attempt == MAX_RETRIES - 1:
+                        body = response.json()
+                        raise RuntimeError(
+                            body.get("message", f"API error {response.status_code}")
+                        )
+                    wait = 2**attempt
+                    logger.warning(
+                        "API returned {} (attempt {}/{}), retrying in {}s",
+                        response.status_code,
+                        attempt + 1,
+                        MAX_RETRIES,
+                        wait,
                     )
-                await asyncio.sleep(wait)
-                continue
-            response.raise_for_status()
-            return response.json()
+                    await asyncio.sleep(wait)
+                    continue
+                response.raise_for_status()
+                return response.json()
         return {}
 
     async def get_intervals(self, start: date, end: date) -> list[IntervalData]:
@@ -122,7 +128,11 @@ class EnphaseClient:
         data = await self._request("GET", url, params=params)
         result = []
         for item in data.get("intervals", []):
-            interval_start = datetime.fromtimestamp(item["end_at"] - 900, tz=UTC)
+            end_at_ts = item.get("end_at")
+            if end_at_ts is None:
+                logger.warning("Interval missing end_at field, skipping: {}", item)
+                continue
+            interval_start = datetime.fromtimestamp(end_at_ts - 900, tz=UTC)
             result.append(
                 IntervalData(
                     interval_start=interval_start,
@@ -165,7 +175,12 @@ class EnphaseClient:
             )
         response.raise_for_status()
         body = response.json()
-        self._access_token = body["access_token"]
+        new_token = body.get("access_token")
+        if new_token is None:
+            raise ValueError(
+                f"Token refresh response missing access_token: {list(body.keys())}"
+            )
+        self._access_token = new_token
         self._refresh_token = body.get("refresh_token", self._refresh_token)
         logger.info("Enphase access token refreshed successfully")
         return self._access_token

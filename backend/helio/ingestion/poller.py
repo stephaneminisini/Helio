@@ -152,6 +152,7 @@ async def poll_irradiance(
         tilt=tilt,
         azimuth=azimuth,
         latitude=latitude,
+        longitude=longitude,
         target_date=target_date,
     )
     existing = await session.execute(

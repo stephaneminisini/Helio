@@ -17,6 +17,7 @@ def compute_poa(
     tilt: float,
     azimuth: float,
     latitude: float,
+    longitude: float,
     target_date: date,
 ) -> float:
     """Compute Plane-of-Array irradiance using pvlib Hay-Davies transposition model.
@@ -27,18 +28,19 @@ def compute_poa(
         tilt: Panel tilt angle in degrees from horizontal.
         azimuth: Panel azimuth in degrees (180 = south-facing).
         latitude: Site latitude in decimal degrees.
+        longitude: Site longitude in decimal degrees.
         target_date: The date for solar position calculation.
 
     Returns:
         Plane-of-Array irradiance in kWh/m2/day. Returns 0.0 if both ghi and dni are 0.
     """
-    if ghi == 0.0 and dni == 0.0:
+    if ghi <= 0.0 and dni <= 0.0:
         return 0.0
 
     times = pd.date_range(
         start=f"{target_date} 12:00:00", periods=1, freq="h", tz="UTC"
     )
-    location = pvlib.location.Location(latitude=latitude, longitude=0)
+    location = pvlib.location.Location(latitude=latitude, longitude=longitude)
     solar_position = location.get_solarposition(times)
 
     zenith_deg = float(solar_position["apparent_zenith"].iloc[0])
@@ -157,7 +159,7 @@ class NASAClient(IrradianceClient):
             response = await http.get(NASA_URL, params=params)
         response.raise_for_status()
         props = response.json().get("properties", {}).get("parameter", {})
-        ghi = float(props.get("ALLSKY_SFC_SW_DWN", {}).get(date_str, 0))
-        dni = float(props.get("ALLSKY_SFC_SW_DNI", {}).get(date_str, 0))
+        ghi = max(0.0, float(props.get("ALLSKY_SFC_SW_DWN", {}).get(date_str, 0) or 0))
+        dni = max(0.0, float(props.get("ALLSKY_SFC_SW_DNI", {}).get(date_str, 0) or 0))
         logger.debug("NASA irradiance for {}: ghi={}, dni={}", target_date, ghi, dni)
         return {"ghi": ghi, "dni": dni}
