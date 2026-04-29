@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     poll_hour: int = 4
     poll_minute: int = 0
     tz: str = "America/Montreal"
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     @field_validator("poll_hour")
     @classmethod
