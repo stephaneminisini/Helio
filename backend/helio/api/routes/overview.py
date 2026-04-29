@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
@@ -82,31 +83,40 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
         )
         return float(result.scalar() or 0)
 
-    today_kwh = await get_day_kwh(today) or 0.0
-    lyr_day_kwh = await get_day_kwh(same_day_lyr)
-    this_month = await get_period_kwh(month_start, today)
     last_month_start = (month_start - timedelta(days=1)).replace(day=1)
     last_month_end = month_start - timedelta(days=1)
-    last_month = await get_period_kwh(last_month_start, last_month_end)
-    this_ytd = await get_period_kwh(year_start, today)
-    last_ytd = await get_period_kwh(
-        year_start.replace(year=year_start.year - 1), same_day_lyr
-    )
 
-    best = (
-        await db.execute(
+    (
+        today_kwh_raw,
+        lyr_day_kwh,
+        this_month,
+        last_month,
+        this_ytd,
+        last_ytd,
+        best,
+        all_time_result,
+    ) = await asyncio.gather(
+        get_day_kwh(today),
+        get_day_kwh(same_day_lyr),
+        get_period_kwh(month_start, today),
+        get_period_kwh(last_month_start, last_month_end),
+        get_period_kwh(year_start, today),
+        get_period_kwh(year_start.replace(year=year_start.year - 1), same_day_lyr),
+        db.execute(
             select(DailySummary)
             .where(DailySummary.system_id == system.id)
             .order_by(DailySummary.production_kwh.desc())
             .limit(1)
-        )
-    ).scalar_one_or_none()
-
-    all_time_result = await db.execute(
-        select(func.sum(DailySummary.production_kwh)).where(
-            DailySummary.system_id == system.id
-        )
+        ),
+        db.execute(
+            select(func.sum(DailySummary.production_kwh)).where(
+                DailySummary.system_id == system.id
+            )
+        ),
     )
+
+    today_kwh = today_kwh_raw if today_kwh_raw is not None else 0.0
+    best_row = best.scalar_one_or_none()
     all_time_kwh = float(all_time_result.scalar() or 0)
 
     return OverviewResponse(
@@ -128,7 +138,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
             prior_kwh=last_ytd if last_ytd > 0 else None,
             pct_change=_pct_change(this_ytd, last_ytd),
         ),
-        best_day_kwh=float(best.production_kwh) if best else None,
-        best_day_date=best.day if best else None,
+        best_day_kwh=float(best_row.production_kwh) if best_row else None,
+        best_day_date=best_row.day if best_row else None,
         all_time_kwh=all_time_kwh,
     )
