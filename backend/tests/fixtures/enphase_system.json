@@ -1,0 +1,18 @@
+{
+  "system_id": 12345,
+  "name": "My Solar System",
+  "public_name": "My Solar System",
+  "timezone": "America/Montreal",
+  "address": {
+    "state": "QC",
+    "country": "CA",
+    "zip": "H1A 0A1"
+  },
+  "connection_type": "eth",
+  "status": "normal",
+  "last_report_at": 1714262400,
+  "last_energy_at": 1714262400,
+  "operational_at": 1672531200,
+  "attachment_type": "microinverter",
+  "reference": "HELIO-001"
+}
