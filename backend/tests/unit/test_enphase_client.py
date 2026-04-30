@@ -94,3 +94,14 @@ async def test_refresh_access_token_raises_on_missing_token(client):
 
     with pytest.raises(ValueError, match="access_token"):
         await client.refresh_access_token()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_refresh_access_token_raises_on_http_error(client):
+    respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(401, json={"error": "unauthorized"})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.refresh_access_token()

@@ -145,3 +145,33 @@ async def test_poll_intervals_skips_existing_records():
     add_calls = mock_session.add.call_args_list
     for call in add_calls:
         assert not isinstance(call.args[0], EnergyInterval)
+
+
+@pytest.mark.asyncio
+async def test_poll_intervals_logs_error_and_reraises_on_failure():
+    from datetime import date as d
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        )
+    )
+    mock_session.flush = AsyncMock()
+    mock_session.rollback = AsyncMock()
+    mock_session.commit = AsyncMock()
+    mock_session.add = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get_intervals = AsyncMock(side_effect=RuntimeError("rate limit"))
+
+    with pytest.raises(RuntimeError, match="rate limit"):
+        await poll_intervals(
+            session=mock_session,
+            client=mock_client,
+            system_id=1,
+            start_date=d(2024, 4, 28),
+            end_date=d(2024, 4, 28),
+        )
+
+    mock_session.rollback.assert_called_once()
