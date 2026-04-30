@@ -65,6 +65,31 @@ async def test_settings_404_with_no_system():
 
 
 @pytest.mark.asyncio
+async def test_put_settings_404_with_no_system():
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
+
+    async def override_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.put(
+                "/api/settings",
+                json={"name": "New Name"},
+                headers={"Content-Type": "application/json"},
+            )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_put_settings_updates_system():
     mock_system = MagicMock(spec=System)
     mock_system.enphase_system_id = "test-001"

@@ -89,6 +89,8 @@ async def test_build_daily_summary_updates_existing_row():
     assert result is existing_row
     assert existing_row.production_kwh == Decimal(str(round(600 / 1000, 3)))
     assert existing_row.interval_count == 1
+    assert existing_row.peak_power_w is not None
+    assert existing_row.is_complete is not None
 
 
 @pytest.mark.asyncio
@@ -200,3 +202,5 @@ async def test_build_monthly_summary_updates_existing_row():
     mock_session.add.assert_not_called()
     assert result is existing_row
     assert existing_row.production_kwh == Decimal("40")
+    assert existing_row.performance_ratio is not None
+    assert existing_row.is_anomaly is not None
