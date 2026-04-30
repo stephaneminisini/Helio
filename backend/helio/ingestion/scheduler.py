@@ -25,6 +25,7 @@ async def _daily_poll() -> None:
     """
     yesterday = date.today() - timedelta(days=1)
     logger.info("Daily poll starting for {}", yesterday)
+    failed_steps: list[str] = []
 
     async with AsyncSessionLocal() as session:
         system = (await session.execute(select(System).limit(1))).scalar_one_or_none()
@@ -42,7 +43,7 @@ async def _daily_poll() -> None:
 
         try:
             await client.refresh_access_token()
-        except (RuntimeError, httpx.HTTPStatusError) as exc:
+        except (RuntimeError, httpx.HTTPStatusError, ValueError) as exc:
             logger.error("Token refresh failed, skipping daily poll: {}", exc)
             return
         except Exception as exc:
@@ -53,8 +54,10 @@ async def _daily_poll() -> None:
             await poll_intervals(session, client, system.id, yesterday, yesterday)
         except (RuntimeError, httpx.HTTPStatusError) as exc:
             logger.error("Interval poll failed for {}: {}", yesterday, exc)
+            failed_steps.append("intervals")
         except Exception as exc:
             logger.error("Unexpected interval poll error for {}: {}", yesterday, exc)
+            failed_steps.append("intervals")
 
         irr_client: NRELClient | NASAClient
         if settings.irradiance_source == "nrel":
@@ -74,17 +77,21 @@ async def _daily_poll() -> None:
                 yesterday,
                 settings.irradiance_source,
             )
-        except (RuntimeError, httpx.HTTPStatusError) as exc:
+        except httpx.HTTPStatusError as exc:
             logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+            failed_steps.append("irradiance")
         except Exception as exc:
             logger.error("Unexpected irradiance poll error for {}: {}", yesterday, exc)
+            failed_steps.append("irradiance")
 
         try:
             await build_daily_summary(session, system.id, yesterday)
         except (RuntimeError, ValueError) as exc:
             logger.error("Daily summary build failed for {}: {}", yesterday, exc)
+            failed_steps.append("daily_summary")
         except Exception as exc:
             logger.error("Unexpected daily summary error for {}: {}", yesterday, exc)
+            failed_steps.append("daily_summary")
 
         if yesterday.day == 1:
             prev_month = (yesterday - timedelta(days=1)).replace(day=1)
@@ -92,12 +99,21 @@ async def _daily_poll() -> None:
                 await build_monthly_summary(session, system.id, prev_month, system)
             except (RuntimeError, ValueError) as exc:
                 logger.error("Monthly summary build failed for {}: {}", prev_month, exc)
+                failed_steps.append("monthly_summary")
             except Exception as exc:
                 logger.error(
                     "Unexpected monthly summary error for {}: {}", prev_month, exc
                 )
+                failed_steps.append("monthly_summary")
 
-    logger.info("Daily poll complete for {}", yesterday)
+    if failed_steps:
+        logger.warning(
+            "Daily poll completed with failures for {}: {}",
+            yesterday,
+            ", ".join(failed_steps),
+        )
+    else:
+        logger.info("Daily poll complete for {}", yesterday)
 
 
 def start_scheduler() -> None:

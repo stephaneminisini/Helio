@@ -81,12 +81,12 @@ async def poll_intervals(
 
         # Load all existing timestamps for this date range in one query
         range_start = datetime.combine(start_date, time.min, tzinfo=UTC)
-        range_end = datetime.combine(end_date, time.max, tzinfo=UTC)
+        range_end = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
         existing_timestamps_result = await session.execute(
             select(EnergyInterval.interval_start).where(
                 EnergyInterval.system_id == system_id,
                 EnergyInterval.interval_start >= range_start,
-                EnergyInterval.interval_start <= range_end,
+                EnergyInterval.interval_start < range_end,
             )
         )
         existing_timestamps = set(existing_timestamps_result.scalars().all())
@@ -120,23 +120,57 @@ async def poll_intervals(
         return records_fetched, records_inserted
 
     except (RuntimeError, httpx.HTTPStatusError) as exc:
-        await session.rollback()
-        poll_log.status = "error"
-        poll_log.error_message = str(exc)
-        poll_log.completed_at = datetime.now(tz=UTC)
-        session.add(poll_log)
-        await session.commit()
-        logger.error("Poll failed for {}-{}: {}", start_date, end_date, exc)
-        raise
+        original_exc = exc
+        try:
+            await session.rollback()
+            error_log = PollLog(
+                system_id=system_id,
+                poll_type="intervals",
+                started_at=started_at,
+                status="error",
+                error_message=str(exc),
+                completed_at=datetime.now(tz=UTC),
+                date_range_start=start_date,
+                date_range_end=end_date,
+            )
+            session.add(error_log)
+            await session.commit()
+        except Exception as log_exc:
+            logger.error(
+                "Failed to persist poll error log for {}-{}: {}",
+                start_date,
+                end_date,
+                log_exc,
+            )
+        logger.error("Poll failed for {}-{}: {}", start_date, end_date, original_exc)
+        raise original_exc
     except Exception as exc:
-        await session.rollback()
-        poll_log.status = "error"
-        poll_log.error_message = f"Unexpected error: {exc}"
-        poll_log.completed_at = datetime.now(tz=UTC)
-        session.add(poll_log)
-        await session.commit()
-        logger.error("Unexpected poll error for {}-{}: {}", start_date, end_date, exc)
-        raise
+        original_exc = exc
+        try:
+            await session.rollback()
+            error_log = PollLog(
+                system_id=system_id,
+                poll_type="intervals",
+                started_at=started_at,
+                status="error",
+                error_message=f"Unexpected error: {exc}",
+                completed_at=datetime.now(tz=UTC),
+                date_range_start=start_date,
+                date_range_end=end_date,
+            )
+            session.add(error_log)
+            await session.commit()
+        except Exception as log_exc:
+            logger.error(
+                "Failed to persist poll error log for {}-{}: {}",
+                start_date,
+                end_date,
+                log_exc,
+            )
+        logger.error(
+            "Unexpected poll error for {}-{}: {}", start_date, end_date, original_exc
+        )
+        raise original_exc
 
 
 async def poll_irradiance(
