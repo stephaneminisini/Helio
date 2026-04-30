@@ -7,6 +7,7 @@ Usage:
 import asyncio
 from datetime import date, timedelta
 
+import httpx
 from loguru import logger
 from sqlalchemy import select
 
@@ -38,7 +39,18 @@ async def backfill() -> None:
             access_token=settings.enphase_access_token,
             refresh_token=settings.enphase_refresh_token,
         )
-        await client.refresh_access_token()
+        try:
+            await client.refresh_access_token()
+        except (httpx.HTTPStatusError, ValueError) as exc:
+            logger.error(
+                "Token refresh failed - verify ENPHASE_ACCESS_TOKEN and "
+                "ENPHASE_REFRESH_TOKEN in .env: {}",
+                exc,
+            )
+            return
+        except Exception as exc:
+            logger.error("Unexpected error during token refresh: {}", exc)
+            return
 
         irr_client: NRELClient | NASAClient
         if settings.irradiance_source == "nrel":
@@ -48,15 +60,30 @@ async def backfill() -> None:
 
         start = system.install_date
         end = date.today() - timedelta(days=1)
-        gaps = await detect_gaps(session, system.id, start, end)
+        try:
+            gaps = await detect_gaps(session, system.id, start, end)
+        except Exception as exc:
+            logger.error(
+                "Failed to detect gaps in date range {}-{}: {}", start, end, exc
+            )
+            return
         logger.info(
             "Backfill: {} days missing between {} and {}", len(gaps), start, end
         )
 
         for day in gaps:
             logger.info("Backfilling {}", day)
+            intervals_ok = False
+
             try:
                 await poll_intervals(session, client, system.id, day, day)
+                intervals_ok = True
+            except (RuntimeError, httpx.HTTPStatusError) as exc:
+                logger.error("Interval backfill failed for {}: {}", day, exc)
+            except Exception as exc:
+                logger.error("Unexpected interval error for {}: {}", day, exc)
+
+            try:
                 await poll_irradiance(
                     session,
                     irr_client,
@@ -68,9 +95,17 @@ async def backfill() -> None:
                     day,
                     settings.irradiance_source,
                 )
-                await build_daily_summary(session, system.id, day)
+            except httpx.HTTPStatusError as exc:
+                logger.error("Irradiance backfill failed for {}: {}", day, exc)
             except Exception as exc:
-                logger.error("Backfill failed for {}: {}", day, exc)
+                logger.error("Unexpected irradiance error for {}: {}", day, exc)
+
+            if intervals_ok:
+                try:
+                    await build_daily_summary(session, system.id, day)
+                except Exception as exc:
+                    logger.error("Summary build failed for {}: {}", day, exc)
+
             await asyncio.sleep(0.5)
 
         logger.info("Backfill complete")
