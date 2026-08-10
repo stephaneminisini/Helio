@@ -11,6 +11,9 @@ export default {
           600: "#d97706",
         },
       },
+      transitionTimingFunction: {
+        expo: "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
     },
   },
   plugins: [],
