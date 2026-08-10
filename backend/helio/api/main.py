@@ -9,6 +9,7 @@ from loguru import logger
 from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.settings import router as settings_router
+from helio.api.routes.status import router as status_router
 from helio.core.config import settings
 from helio.ingestion.scheduler import scheduler, start_scheduler
 
@@ -42,13 +43,14 @@ app = FastAPI(title="Helio Monitor API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["GET", "PUT"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type"],
 )
 
 app.include_router(overview_router, prefix="/api")
 app.include_router(efficiency_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(status_router, prefix="/api")
 
 
 @app.get("/api/health")
