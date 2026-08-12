@@ -22,6 +22,22 @@ class SettingsResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SettingsCreate(BaseModel):
+    """Request body for POST /api/settings. Creates the single system record."""
+
+    enphase_system_id: str
+    install_date: date
+    name: str | None = None
+    location: str | None = None
+    system_size_kw: Decimal | None = None
+    panel_count: int | None = None
+    panel_wattage_w: int | None = None
+    tilt_angle_deg: Decimal | None = None
+    azimuth_deg: Decimal | None = None
+    degradation_rate: Decimal | None = None
+    irradiance_source: str | None = None
+
+
 class SettingsUpdate(BaseModel):
     """Request body for PUT /api/settings. All fields optional for partial updates."""
 

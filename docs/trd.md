@@ -308,7 +308,8 @@ ORDER BY yr;
 - `GET /api/efficiency` — PR history + degradation metrics
 - `GET /api/panels` — panel heatmap data
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
-- `GET/PUT /api/settings` — system configuration
+- `GET/POST/PUT /api/settings` — system configuration (`POST` creates the single
+  system record on a fresh install; `409` if one already exists)
 
 ### 5.9 `helio/api/main.py`
 - FastAPI app entrypoint
