@@ -1,9 +1,11 @@
+from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import IntegrityError
 
 from helio.api.main import app
 from helio.db.models import System
@@ -89,160 +91,263 @@ async def test_put_settings_404_with_no_system():
         app.dependency_overrides.clear()
 
 
-def _apply_server_defaults(system: System) -> None:
-    """Simulate the column defaults the database applies on insert."""
-    if system.degradation_rate is None:
-        system.degradation_rate = Decimal("0.500")
-    if system.irradiance_source is None:
-        system.irradiance_source = "nrel"
+def _apply_insert_defaults(system: System) -> None:
+    """Stand in for db.refresh(), which is a no-op on a mocked session.
+
+    degradation_rate and irradiance_source are NOT NULL and get their values
+    from SQLAlchemy column defaults applied at flush; a real refresh() then
+    reads them back. SettingsResponse types both as required, so without this
+    the handler would 500 on validation instead of returning 201. Expected
+    values are read off the model rather than hardcoded so a change to the
+    declared defaults fails the test instead of silently diverging.
+    """
+    for column in ("degradation_rate", "irradiance_source"):
+        if getattr(system, column) is None:
+            setattr(system, column, System.__table__.c[column].default.arg)
+
+
+def _mock_session(existing: System | None = None, **overrides) -> AsyncMock:
+    """Build a mocked AsyncSession whose SELECT returns `existing`."""
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing))
+    )
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock(side_effect=_apply_insert_defaults)
+    for name, value in overrides.items():
+        setattr(session, name, value)
+    return session
+
+
+@asynccontextmanager
+async def _client_with_db(session):
+    """Serve the app with `session` injected as the request-scoped database."""
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
 async def test_post_settings_creates_system():
     added: list[System] = []
+    session = _mock_session(add=MagicMock(side_effect=added.append))
 
-    mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
-    )
-    mock_session.add = MagicMock(side_effect=added.append)
-    mock_session.commit = AsyncMock()
-    mock_session.refresh = AsyncMock(side_effect=_apply_server_defaults)
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json={
+                "enphase_system_id": "test-001",
+                "install_date": "2023-01-01",
+                "name": "Roof Array",
+                "panel_count": 30,
+                "latitude": "45.523100",
+                "longitude": "-122.676500",
+            },
+            headers={"Content-Type": "application/json"},
+        )
 
-    async def override_get_db():
-        yield mock_session
+    assert response.status_code == 201
+    data = response.json()
+    assert data["enphase_system_id"] == "test-001"
+    assert data["install_date"] == "2023-01-01"
+    assert data["name"] == "Roof Array"
+    assert data["panel_count"] == 30
+    assert data["latitude"] == "45.523100"
+    assert data["longitude"] == "-122.676500"
+    assert data["degradation_rate"] == "0.5"
+    assert data["irradiance_source"] == "nrel"
+    assert len(added) == 1
+    assert added[0].enphase_system_id == "test-001"
+    assert added[0].install_date == date(2023, 1, 1)
+    session.commit.assert_awaited_once()
 
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/settings",
-                json={
-                    "enphase_system_id": "test-001",
-                    "install_date": "2023-01-01",
-                    "name": "Roof Array",
-                    "panel_count": 30,
-                },
-                headers={"Content-Type": "application/json"},
+
+@pytest.mark.asyncio
+async def test_post_settings_omits_none_so_column_defaults_apply():
+    """An explicit null must be dropped, not written to a NOT NULL column."""
+    # Snapshot at add() time: refresh() populates the defaults afterwards.
+    columns_written: list[set[str]] = []
+    session = _mock_session(
+        add=MagicMock(
+            side_effect=lambda system: columns_written.append(
+                set(system.__dict__) - {"_sa_instance_state"}
             )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["enphase_system_id"] == "test-001"
-        assert data["install_date"] == "2023-01-01"
-        assert data["name"] == "Roof Array"
-        assert data["panel_count"] == 30
-        assert data["degradation_rate"] == "0.500"
-        assert data["irradiance_source"] == "nrel"
-        assert len(added) == 1
-        assert added[0].enphase_system_id == "test-001"
-        assert added[0].install_date == date(2023, 1, 1)
-        mock_session.commit.assert_awaited_once()
-    finally:
-        app.dependency_overrides.clear()
+        )
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json={
+                "enphase_system_id": "test-005",
+                "install_date": "2023-01-01",
+                "degradation_rate": None,
+                "irradiance_source": None,
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 201
+    assert columns_written == [{"enphase_system_id", "install_date"}]
+
+
+@pytest.mark.asyncio
+async def test_post_settings_409_when_insert_races():
+    """The singleton index rejects the loser of a concurrent create."""
+    session = _mock_session(
+        commit=AsyncMock(
+            side_effect=IntegrityError("INSERT", {}, Exception("uq_systems_singleton"))
+        )
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json={"enphase_system_id": "test-006", "install_date": "2023-01-01"},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 409
+    session.rollback.assert_awaited_once()
+    session.refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_post_settings_409_when_system_exists():
-    mock_system = MagicMock(spec=System)
+    session = _mock_session(existing=MagicMock(spec=System))
 
-    mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_system))
-    )
-    mock_session.add = MagicMock()
-    mock_session.commit = AsyncMock()
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json={
+                "enphase_system_id": "test-002",
+                "install_date": "2023-01-01",
+            },
+            headers={"Content-Type": "application/json"},
+        )
 
-    async def override_get_db():
-        yield mock_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/settings",
-                json={
-                    "enphase_system_id": "test-002",
-                    "install_date": "2023-01-01",
-                },
-                headers={"Content-Type": "application/json"},
-            )
-        assert response.status_code == 409
-        mock_session.add.assert_not_called()
-        mock_session.commit.assert_not_awaited()
-    finally:
-        app.dependency_overrides.clear()
+    assert response.status_code == 409
+    session.add.assert_not_called()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "payload,missing_field",
+    "payload,expected_fields",
     [
-        ({"install_date": "2023-01-01"}, "enphase_system_id"),
-        ({"enphase_system_id": "test-003"}, "install_date"),
-        ({}, "enphase_system_id"),
+        ({"install_date": "2023-01-01"}, ["enphase_system_id"]),
+        ({"enphase_system_id": "test-003"}, ["install_date"]),
+        ({}, ["enphase_system_id", "install_date"]),
     ],
 )
-async def test_post_settings_422_when_required_field_missing(payload, missing_field):
-    mock_session = AsyncMock()
-    mock_session.add = MagicMock()
+async def test_post_settings_422_when_required_field_missing(payload, expected_fields):
+    session = _mock_session()
 
-    async def override_get_db():
-        yield mock_session
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
 
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/settings",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-        assert response.status_code == 422
-        fields = [error["loc"][-1] for error in response.json()["detail"]]
-        assert missing_field in fields
-        mock_session.add.assert_not_called()
-    finally:
-        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    fields = [error["loc"][-1] for error in response.json()["detail"]]
+    assert sorted(fields) == sorted(expected_fields)
 
 
 @pytest.mark.asyncio
-async def test_get_settings_returns_persisted_system():
-    system = System(
-        enphase_system_id="test-004",
-        install_date=date(2022, 6, 15),
-        name="Roof Array",
-        system_size_kw=Decimal("10.000"),
-        degradation_rate=Decimal("0.500"),
-        irradiance_source="nrel",
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("enphase_system_id", ""),
+        ("enphase_system_id", "x" * 65),
+        ("name", "x" * 129),
+        ("location", "x" * 257),
+        ("latitude", "91.0"),
+        ("longitude", "-181.0"),
+        ("system_size_kw", "0"),
+        ("system_size_kw", "1000"),
+        ("panel_count", -30),
+        ("panel_count", 100_000),
+        ("panel_wattage_w", 0),
+        ("tilt_angle_deg", "-1.0"),
+        ("tilt_angle_deg", "12345.67"),
+        ("azimuth_deg", "361.0"),
+        ("degradation_rate", "1234.5"),
+        ("irradiance_source", "totally-made-up"),
+    ],
+)
+async def test_post_settings_422_when_value_out_of_bounds(field, value):
+    """Bad values must be rejected at the boundary, not by Postgres as a 500."""
+    session = _mock_session()
+    payload = {
+        "enphase_system_id": "test-007",
+        "install_date": "2023-01-01",
+        field: value,
+    }
+
+    async with _client_with_db(session) as client:
+        response = await client.post(
+            "/api/settings",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert [error["loc"][-1] for error in response.json()["detail"]] == [field]
+    session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_values_persisted_by_post():
+    """AC4: the fields POST writes are the fields GET reads back."""
+    stored: list[System] = []
+    session = _mock_session(add=MagicMock(side_effect=stored.append))
+    # Mirror the DB: SELECT finds nothing until the insert has happened.
+    session.execute = AsyncMock(
+        side_effect=lambda stmt: MagicMock(
+            scalar_one_or_none=MagicMock(
+                return_value=stored[0] if stored else None,
+            )
+        )
     )
+    body = {
+        "enphase_system_id": "test-004",
+        "install_date": "2022-06-15",
+        "name": "Roof Array",
+        "location": "Portland, OR",
+        "latitude": "45.523100",
+        "longitude": "-122.676500",
+        "system_size_kw": "10.000",
+        "panel_count": 25,
+        "panel_wattage_w": 400,
+        "tilt_angle_deg": "30.00",
+        "azimuth_deg": "180.00",
+        "degradation_rate": "0.500",
+        "irradiance_source": "nasa",
+    }
 
-    mock_session = AsyncMock()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=system))
-    )
+    async with _client_with_db(session) as client:
+        created = await client.post(
+            "/api/settings", json=body, headers={"Content-Type": "application/json"}
+        )
+        fetched = await client.get("/api/settings")
 
-    async def override_get_db():
-        yield mock_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.get("/api/settings")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["enphase_system_id"] == "test-004"
-        assert data["install_date"] == "2022-06-15"
-        assert data["name"] == "Roof Array"
-    finally:
-        app.dependency_overrides.clear()
+    assert created.status_code == 201
+    assert fetched.status_code == 200
+    assert fetched.json() == created.json()
+    for field, value in body.items():
+        assert fetched.json()[field] == value
 
 
 @pytest.mark.asyncio
@@ -251,6 +356,8 @@ async def test_put_settings_updates_system():
     mock_system.enphase_system_id = "test-001"
     mock_system.name = "Old Name"
     mock_system.location = None
+    mock_system.latitude = None
+    mock_system.longitude = None
     mock_system.system_size_kw = Decimal("10.0")
     mock_system.panel_count = 30
     mock_system.panel_wattage_w = 400
