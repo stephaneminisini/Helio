@@ -86,28 +86,28 @@ psql: ## Open a psql shell in the database container
 .PHONY: backfill
 backfill: ## Fetch all historical data from install date to today
 	@echo "⏳  Starting backfill — this may take several minutes..."
-	$(COMPOSE) exec $(API_SERVICE) python -m helio.ingestion.backfill
+	$(COMPOSE) exec $(API_SERVICE) python -m helio.cli backfill
 	@echo "✅  Backfill complete"
 
 .PHONY: poll-now
 poll-now: ## Trigger an immediate poll (don't wait for scheduled time)
-	$(COMPOSE) exec $(API_SERVICE) python -m helio.ingestion.poller --run-now
+	$(COMPOSE) exec $(API_SERVICE) python -m helio.cli poll-now
 	@echo "✅  Poll complete"
 
 .PHONY: poll-status
 poll-status: ## Show the last 10 poll run results
-	$(COMPOSE) exec $(API_SERVICE) python -m helio.ingestion.poller --status
+	$(COMPOSE) exec $(API_SERVICE) python -m helio.cli poll-status
 
 .PHONY: rebuild-summaries
 rebuild-summaries: ## Rebuild all daily and monthly summaries from raw intervals
 	@echo "⏳  Rebuilding summaries..."
-	$(COMPOSE) exec $(API_SERVICE) python -m helio.analytics.summarizer --rebuild-all
+	$(COMPOSE) exec $(API_SERVICE) python -m helio.cli rebuild-summaries
 	@echo "✅  Summaries rebuilt"
 
 .PHONY: seed-mock
 seed-mock: ## Insert 3 years of synthetic data for development (no Enphase account needed)
 	@echo "⏳  Seeding mock data..."
-	$(COMPOSE) exec $(API_SERVICE) python -m helio.db.seed_mock
+	$(COMPOSE) exec $(API_SERVICE) python -m helio.cli seed-mock
 	@echo "✅  Mock data seeded — open http://localhost:3000"
 
 # ── Backup & Restore ──────────────────────────────────────────────────────────

@@ -16,12 +16,12 @@ from helio.ingestion.tokens import TokenError, build_authenticated_client
 scheduler = AsyncIOScheduler(timezone=settings.tz)
 
 
-async def _daily_poll() -> None:
+async def run_daily_poll() -> None:
     """Run the daily data ingestion job: intervals, irradiance, and summary rebuild.
 
     Fetches yesterday's production data from Enphase, irradiance from the configured
     source, builds the daily summary, and triggers a monthly summary on the first
-    day of each month.
+    day of each month. Public because `make poll-now` runs the same job on demand.
     """
     yesterday = date.today() - timedelta(days=1)
     logger.info("Daily poll starting for {}", yesterday)
@@ -116,7 +116,7 @@ async def _daily_poll() -> None:
 def start_scheduler() -> None:
     """Register cron jobs and start the APScheduler instance."""
     scheduler.add_job(
-        _daily_poll,
+        run_daily_poll,
         "cron",
         hour=settings.poll_hour,
         minute=settings.poll_minute,

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helio.db.models import (
@@ -94,6 +94,59 @@ async def build_daily_summary(
         row.production_kwh,
     )
     return row
+
+
+async def rebuild_all_summaries(
+    session: AsyncSession,
+    system: System,
+) -> tuple[int, int]:
+    """Rebuild every daily and monthly summary from the raw intervals.
+
+    Useful after a backfill, or after fixing an aggregation bug: existing rows
+    are upserted rather than deleted, so the operation is safe to repeat. Only
+    days that actually have intervals are rebuilt.
+
+    Args:
+        session: Active async database session.
+        system: The system to rebuild summaries for.
+
+    Returns:
+        Tuple of (days_rebuilt, months_rebuilt).
+    """
+    day_column = func.date(EnergyInterval.interval_start).label("day")
+    days = (
+        (
+            await session.execute(
+                select(day_column)
+                .where(EnergyInterval.system_id == system.id)
+                .distinct()
+                .order_by(day_column)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if not days:
+        logger.warning(
+            "No intervals stored for system={} - nothing to rebuild", system.id
+        )
+        return 0, 0
+
+    for day in days:
+        await build_daily_summary(session, system.id, day)
+
+    months = sorted({day.replace(day=1) for day in days})
+    for month in months:
+        await build_monthly_summary(session, system.id, month, system)
+
+    logger.info(
+        "Rebuilt {} daily and {} monthly summaries for system={}",
+        len(days),
+        len(months),
+        system.id,
+    )
+    return len(days), len(months)
 
 
 async def build_monthly_summary(
