@@ -1,12 +1,13 @@
 import json
 from datetime import date
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import respx
 
-from helio.ingestion.enphase_client import EnphaseClient, IntervalData
+from helio.ingestion.enphase_client import EnphaseClient, IntervalData, authorize_url
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -105,3 +106,62 @@ async def test_refresh_access_token_raises_on_http_error(client):
 
     with pytest.raises(httpx.HTTPStatusError):
         await client.refresh_access_token()
+
+
+def test_authorize_url_carries_client_id_and_redirect_uri():
+    """The consent link is what AC1 checks, so build it from settings verbatim."""
+    url = authorize_url("client-id-123", "http://localhost:8000/cb")
+
+    assert url.startswith("https://api.enphaseenergy.com/oauth/authorize?")
+    query = parse_qs(urlparse(url).query)
+    assert query == {
+        "response_type": ["code"],
+        "client_id": ["client-id-123"],
+        "redirect_uri": ["http://localhost:8000/cb"],
+    }
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_authenticate_exchanges_the_code_for_both_tokens(client):
+    route = respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(
+            200, json={"access_token": "code-access", "refresh_token": "code-refresh"}
+        )
+    )
+
+    tokens = await client.authenticate("the-code", "http://localhost:8000/cb")
+
+    assert tokens == ("code-access", "code-refresh")
+    assert client.access_token == "code-access"
+    assert client.refresh_token == "code-refresh"
+    body = parse_qs(route.calls.last.request.content.decode())
+    assert body["grant_type"] == ["authorization_code"]
+    assert body["code"] == ["the-code"]
+    assert body["redirect_uri"] == ["http://localhost:8000/cb"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_authenticate_raises_on_an_expired_code(client):
+    respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(400, json={"error": "invalid_grant"})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.authenticate("expired", "http://localhost:8000/cb")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_authenticate_rejects_a_response_without_a_refresh_token(client):
+    """Keeping an access token with no refresh token would strand the install."""
+    respx.post("https://api.enphaseenergy.com/oauth/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "only-access"})
+    )
+
+    with pytest.raises(ValueError, match="refresh_token"):
+        await client.authenticate("the-code", "http://localhost:8000/cb")
+
+    assert client.access_token == "test-token"
+    assert client.refresh_token == "test-refresh"

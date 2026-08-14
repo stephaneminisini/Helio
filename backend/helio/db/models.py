@@ -43,6 +43,9 @@ class System(Base):
         azimuth_deg: Azimuth orientation of the panels in degrees.
         degradation_rate: Annual degradation rate (default 0.5).
         irradiance_source: Source identifier for irradiance data (default "nrel").
+        enphase_access_token: Fernet-encrypted Enphase OAuth access token.
+        enphase_refresh_token: Fernet-encrypted Enphase OAuth refresh token.
+        token_updated_at: Timestamp of the last successful token rotation.
         created_at: Timestamp when the record was created.
         updated_at: Timestamp when the record was last updated.
         intervals: Related energy interval records.
@@ -75,6 +78,12 @@ class System(Base):
     irradiance_source: Mapped[str] = mapped_column(
         String(32), default="nrel", server_default="nrel"
     )
+    # Ciphertext, not plaintext: written only via helio.ingestion.tokens so the
+    # Fernet encryption cannot be bypassed. Text because Fernet output grows
+    # with the token length and has no useful upper bound.
+    enphase_access_token: Mapped[str | None] = mapped_column(Text)
+    enphase_refresh_token: Mapped[str | None] = mapped_column(Text)
+    token_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
