@@ -15,9 +15,9 @@ from helio.analytics.summarizer import build_daily_summary
 from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
-from helio.ingestion.enphase_client import EnphaseClient
 from helio.ingestion.irradiance_client import NASAClient, NRELClient
 from helio.ingestion.poller import detect_gaps, poll_intervals, poll_irradiance
+from helio.ingestion.tokens import TokenError, build_authenticated_client
 
 
 async def backfill() -> None:
@@ -32,21 +32,10 @@ async def backfill() -> None:
             logger.error("No system found. Configure your system in Setup first.")
             return
 
-        client = EnphaseClient(
-            client_id=settings.enphase_client_id,
-            client_secret=settings.enphase_client_secret,
-            system_id=settings.enphase_system_id,
-            access_token=settings.enphase_access_token,
-            refresh_token=settings.enphase_refresh_token,
-        )
         try:
-            await client.refresh_access_token()
-        except (httpx.HTTPStatusError, ValueError) as exc:
-            logger.error(
-                "Token refresh failed - verify ENPHASE_ACCESS_TOKEN and "
-                "ENPHASE_REFRESH_TOKEN in .env: {}",
-                exc,
-            )
+            client = await build_authenticated_client(session, system)
+        except (TokenError, httpx.HTTPStatusError, ValueError) as exc:
+            logger.error("Enphase authentication failed, backfill aborted: {}", exc)
             return
         except Exception as exc:
             logger.error("Unexpected error during token refresh: {}", exc)
