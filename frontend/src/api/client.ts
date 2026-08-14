@@ -41,6 +41,8 @@ export interface SystemSettings {
   enphase_system_id: string;
   name: string | null;
   location: string | null;
+  latitude: string | null;
+  longitude: string | null;
   system_size_kw: string | null;
   panel_count: number | null;
   panel_wattage_w: number | null;

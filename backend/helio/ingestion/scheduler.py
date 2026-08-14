@@ -10,7 +10,7 @@ from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
 from helio.ingestion.irradiance_client import NASAClient, NRELClient
-from helio.ingestion.poller import poll_intervals, poll_irradiance
+from helio.ingestion.poller import irradiance_location, poll_intervals, poll_irradiance
 from helio.ingestion.tokens import TokenError, build_authenticated_client
 
 scheduler = AsyncIOScheduler(timezone=settings.tz)
@@ -57,24 +57,29 @@ async def _daily_poll() -> None:
         else:
             irr_client = NASAClient()
 
-        try:
-            await poll_irradiance(
-                session,
-                irr_client,
-                system.id,
-                float(system.latitude or 0),
-                float(system.longitude or 0),
-                float(system.tilt_angle_deg or 30),
-                float(system.azimuth_deg or 180),
-                yesterday,
-                settings.irradiance_source,
-            )
-        except httpx.HTTPStatusError as exc:
-            logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+        location = irradiance_location(system)
+        if location is None:
             failed_steps.append("irradiance")
-        except Exception as exc:
-            logger.error("Unexpected irradiance poll error for {}: {}", yesterday, exc)
-            failed_steps.append("irradiance")
+        else:
+            try:
+                await poll_irradiance(
+                    session,
+                    irr_client,
+                    system.id,
+                    *location,
+                    float(system.tilt_angle_deg or 30),
+                    float(system.azimuth_deg or 180),
+                    yesterday,
+                    settings.irradiance_source,
+                )
+            except httpx.HTTPStatusError as exc:
+                logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+                failed_steps.append("irradiance")
+            except Exception as exc:
+                logger.error(
+                    "Unexpected irradiance poll error for {}: {}", yesterday, exc
+                )
+                failed_steps.append("irradiance")
 
         try:
             await build_daily_summary(session, system.id, yesterday)
