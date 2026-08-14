@@ -21,6 +21,7 @@ const SYSTEM: SystemSettings = {
   azimuth_deg: "180.00",
   degradation_rate: "0.500",
   irradiance_source: "nrel",
+  enphase_connected: false,
 };
 
 const DISCONNECTED: EnphaseStatus = {
