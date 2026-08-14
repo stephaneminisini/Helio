@@ -50,6 +50,21 @@ class EnphaseClient:
         self._access_token = access_token
         self._refresh_token = refresh_token
 
+    @property
+    def system_id(self) -> str:
+        """The Enphase system ID this client queries."""
+        return self._system_id
+
+    @property
+    def access_token(self) -> str:
+        """The current access token, updated by refresh_access_token()."""
+        return self._access_token
+
+    @property
+    def refresh_token(self) -> str:
+        """The current refresh token, rotated by refresh_access_token()."""
+        return self._refresh_token
+
     async def _request(
         self,
         method: str,
