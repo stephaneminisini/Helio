@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SystemSettings } from "../api/client";
+import { EnphaseStatus, SystemSettings } from "../api/client";
+import { callsTo, response, stubFetch } from "../test/fetchStub";
 import { SetupPage } from "./SetupPage";
+
+const SETTINGS_PATH = "/api/settings";
+const STATUS_PATH = "/api/auth/enphase/status";
 
 const SYSTEM: SystemSettings = {
   enphase_system_id: "test-001",
@@ -19,26 +23,17 @@ const SYSTEM: SystemSettings = {
   irradiance_source: "nrel",
 };
 
-function response(status: number, body: unknown): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  } as Response;
-}
+const DISCONNECTED: EnphaseStatus = {
+  connected: false,
+  client_configured: false,
+  token_updated_at: null,
+  last_successful_poll_at: null,
+  token_warning: null,
+};
 
-/** Stub fetch with one response per call, in order. */
-function stubFetch(...responses: Response[]) {
-  const fetchMock = vi.fn();
-  responses.forEach((r) => fetchMock.mockResolvedValueOnce(r));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
-function lastBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
-  const [, options] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
-  return JSON.parse((options as RequestInit).body as string);
+function jsonBody(call: unknown[]): Record<string, unknown> {
+  const [, options] = call as [string, RequestInit];
+  return JSON.parse(options.body as string);
 }
 
 afterEach(() => {
@@ -47,7 +42,7 @@ afterEach(() => {
 
 describe("SetupPage", () => {
   it("shows the onboarding form instead of an error when nothing is configured", async () => {
-    stubFetch(response(404, { detail: "No system configured" }));
+    stubFetch({ [SETTINGS_PATH]: response(404, { detail: "No system configured" }) });
 
     render(<SetupPage />);
 
@@ -60,10 +55,13 @@ describe("SetupPage", () => {
   });
 
   it("creates the system and switches to edit mode", async () => {
-    const fetchMock = stubFetch(
-      response(404, { detail: "No system configured" }),
-      response(201, SYSTEM)
-    );
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: [
+        response(404, { detail: "No system configured" }),
+        response(201, SYSTEM),
+      ],
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
     render(<SetupPage />);
     await screen.findByText(/Welcome to Helio/);
 
@@ -78,10 +76,9 @@ describe("SetupPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Save Settings" })).toBeEnabled()
     );
-    const [url, options] = fetchMock.mock.calls[1];
-    expect(url).toBe("/api/settings");
-    expect((options as RequestInit).method).toBe("POST");
-    expect(lastBody(fetchMock)).toMatchObject({
+    const create = callsTo(fetchMock, SETTINGS_PATH)[1];
+    expect((create[1] as RequestInit).method).toBe("POST");
+    expect(jsonBody(create)).toMatchObject({
       enphase_system_id: "test-001",
       install_date: "2022-06-15",
     });
@@ -92,7 +89,9 @@ describe("SetupPage", () => {
   });
 
   it("blocks submission with an inline message when a required field is empty", async () => {
-    const fetchMock = stubFetch(response(404, { detail: "No system configured" }));
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: response(404, { detail: "No system configured" }),
+    });
     render(<SetupPage />);
     await screen.findByText(/Welcome to Helio/);
 
@@ -103,11 +102,14 @@ describe("SetupPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Install date is required.")).toBeInTheDocument();
     // Only the initial GET: no create request was sent.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(callsTo(fetchMock, SETTINGS_PATH)).toHaveLength(1);
   });
 
   it("keeps the existing edit behaviour when a system is configured", async () => {
-    const fetchMock = stubFetch(response(200, SYSTEM), response(200, SYSTEM));
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: [response(200, SYSTEM), response(200, SYSTEM)],
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
     render(<SetupPage />);
 
     expect(
@@ -118,19 +120,34 @@ describe("SetupPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const [, options] = fetchMock.mock.calls[1];
-    expect((options as RequestInit).method).toBe("PUT");
-    expect(lastBody(fetchMock)).toMatchObject({ name: "Roof Array" });
+    await waitFor(() =>
+      expect(callsTo(fetchMock, SETTINGS_PATH)).toHaveLength(2)
+    );
+    const update = callsTo(fetchMock, SETTINGS_PATH)[1];
+    expect((update[1] as RequestInit).method).toBe("PUT");
+    expect(jsonBody(update)).toMatchObject({ name: "Roof Array" });
   });
 
   it("still shows an error state for a real API failure", async () => {
-    stubFetch(response(500, { detail: "boom" }));
+    stubFetch({ [SETTINGS_PATH]: response(500, { detail: "boom" }) });
 
     render(<SetupPage />);
 
     expect(await screen.findByText(/^Error:/)).toBeInTheDocument();
     expect(screen.queryByText(/Welcome to Helio/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers the Enphase connection section once a system exists", async () => {
+    stubFetch({
+      [SETTINGS_PATH]: response(200, SYSTEM),
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
+
+    render(<SetupPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Connect to Enphase" })
+    ).toBeInTheDocument();
   });
 });
