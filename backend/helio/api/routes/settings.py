@@ -9,10 +9,28 @@ from helio.api.schemas.settings import (
     SettingsResponse,
     SettingsUpdate,
 )
+from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import get_db
 
 router = APIRouter()
+
+
+def _to_response(system: System) -> SettingsResponse:
+    """Serialise a system row plus the Enphase connection state.
+
+    Whether Enphase is connected comes from the application configuration
+    rather than the row, so it is merged in here for every endpoint.
+
+    Args:
+        system: The persisted system row.
+
+    Returns:
+        SettingsResponse for the given system.
+    """
+    return SettingsResponse.model_validate(system).model_copy(
+        update={"enphase_connected": settings.enphase_configured}
+    )
 
 
 @router.get("/settings", response_model=SettingsResponse)
@@ -31,7 +49,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)) -> SettingsResponse:
     system = (await db.execute(select(System).limit(1))).scalar_one_or_none()
     if system is None:
         raise HTTPException(status_code=404, detail="No system configured")
-    return SettingsResponse.model_validate(system)
+    return _to_response(system)
 
 
 @router.post(
@@ -90,7 +108,7 @@ async def create_settings(
             status_code=409, detail="System already configured"
         ) from exc
     await db.refresh(system)
-    return SettingsResponse.model_validate(system)
+    return _to_response(system)
 
 
 @router.put("/settings", response_model=SettingsResponse)
@@ -119,4 +137,4 @@ async def update_settings(
 
     await db.commit()
     await db.refresh(system)
-    return SettingsResponse.model_validate(system)
+    return _to_response(system)

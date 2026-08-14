@@ -1,5 +1,16 @@
+from cryptography.fernet import Fernet
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+IRRADIANCE_SOURCES = ("nrel", "nasa", "manual")
+ASYNC_DRIVER_PREFIX = "postgresql+asyncpg://"
+FERNET_KEY_HINT = (
+    "Generate one with `make generate-fernet-key` and set FERNET_KEY in .env"
+)
+
+
+class ConfigError(RuntimeError):
+    """Raised when required configuration is missing or malformed."""
 
 
 class Settings(BaseSettings):
@@ -56,6 +67,117 @@ class Settings(BaseSettings):
         if not 0 <= v <= 59:
             raise ValueError(f"poll_minute must be 0-59, got {v}")
         return v
+
+    @property
+    def enphase_configured(self) -> bool:
+        """Whether the Enphase application credentials are both present."""
+        return bool(self.enphase_client_id and self.enphase_client_secret)
+
+
+def _database_url_errors(url: str) -> list[str]:
+    """Validate the database URL without exposing the password it contains.
+
+    Args:
+        url: The configured DATABASE_URL value.
+
+    Returns:
+        A list of human-readable problems; empty when the value is usable.
+    """
+    if not url:
+        return ["DATABASE_URL is not set"]
+    if not url.startswith(ASYNC_DRIVER_PREFIX):
+        scheme = url.split("://", 1)[0]
+        return [
+            f"DATABASE_URL must start with {ASYNC_DRIVER_PREFIX} "
+            f"(got '{scheme}://'); SQLAlchemy needs the async driver prefix"
+        ]
+    return []
+
+
+def _fernet_key_errors(key: str) -> list[str]:
+    """Validate that the Fernet key is present and well-formed.
+
+    Args:
+        key: The configured FERNET_KEY value.
+
+    Returns:
+        A list of human-readable problems; empty when the key is usable.
+    """
+    if not key:
+        return [f"FERNET_KEY is not set. {FERNET_KEY_HINT}"]
+    try:
+        Fernet(key.encode())
+    except (ValueError, TypeError) as exc:
+        return [f"FERNET_KEY is not a valid Fernet key ({exc}). {FERNET_KEY_HINT}"]
+    return []
+
+
+def _irradiance_errors(source: str, nrel_api_key: str) -> list[str]:
+    """Validate the irradiance source and any key it depends on.
+
+    The source is checked against the known values first: an unrecognised value
+    such as 'NREL' would otherwise silently fall through to the NASA client and
+    skip the NREL_API_KEY requirement.
+
+    Args:
+        source: The configured IRRADIANCE_SOURCE value.
+        nrel_api_key: The configured NREL_API_KEY value.
+
+    Returns:
+        A list of human-readable problems; empty when the pair is usable.
+    """
+    if source not in IRRADIANCE_SOURCES:
+        return [
+            f"IRRADIANCE_SOURCE must be one of {', '.join(IRRADIANCE_SOURCES)} "
+            f"(got '{source}')"
+        ]
+    if source == "nrel" and not nrel_api_key:
+        return [
+            "IRRADIANCE_SOURCE=nrel requires NREL_API_KEY. Get a free key at "
+            "https://developer.nrel.gov/signup/, or set IRRADIANCE_SOURCE=nasa "
+            "to use NASA POWER instead (no key needed)"
+        ]
+    return []
+
+
+def validate_startup_config(cfg: Settings) -> None:
+    """Check the configuration the application cannot run without.
+
+    Args:
+        cfg: The settings instance to validate.
+
+    Raises:
+        ConfigError: If any required variable is missing or malformed. Every
+            problem found is listed in the message so a misconfigured install
+            can be fixed in one pass.
+    """
+    errors = [
+        *_database_url_errors(cfg.database_url),
+        *_fernet_key_errors(cfg.fernet_key),
+        *_irradiance_errors(cfg.irradiance_source, cfg.nrel_api_key),
+    ]
+    if errors:
+        raise ConfigError(
+            "Invalid configuration:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
+def optional_config_warnings(cfg: Settings) -> list[str]:
+    """Return warnings for configuration that is only needed once connected.
+
+    Args:
+        cfg: The settings instance to inspect.
+
+    Returns:
+        A list of warning messages; empty when nothing is missing.
+    """
+    if cfg.enphase_configured:
+        return []
+    return [
+        "ENPHASE_CLIENT_ID / ENPHASE_CLIENT_SECRET are not set - Enphase is not "
+        "connected and no production data will be polled. Add them to .env, "
+        "then restart the API."
+    ]
 
 
 settings = Settings()
