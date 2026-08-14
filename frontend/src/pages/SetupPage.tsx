@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SettingsPayload } from "../api/client";
+import { EnphaseConnection } from "../components/EnphaseConnection";
 import { useSettings } from "../hooks/useSettings";
 
 /** Fields POST /api/settings rejects with a 422 when they are missing. */
@@ -216,6 +217,9 @@ export function SetupPage() {
               : "Save Settings"}
         </button>
       </form>
+      {/* The callback needs a system row to attach tokens to, so connecting
+          only makes sense once the system exists. */}
+      {!creating && <EnphaseConnection />}
     </div>
   );
 }

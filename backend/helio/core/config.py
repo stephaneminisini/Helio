@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     enphase_system_id: str = ""
     enphase_access_token: str = ""
     enphase_refresh_token: str = ""
+    # Must match a redirect URI registered on the Enphase application: the
+    # consent request and the code exchange both send it, and Enphase compares
+    # them.
+    enphase_redirect_uri: str = "http://localhost:8000/api/auth/enphase/callback"
+    # Where the OAuth callback sends the browser once the exchange is done.
+    frontend_base_url: str = "http://localhost:3000"
     fernet_key: str = ""
     nrel_api_key: str = ""
     irradiance_source: str = "nrel"

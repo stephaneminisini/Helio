@@ -54,6 +54,15 @@ export interface SystemSettings {
   enphase_connected: boolean;
 }
 
+/** Enphase connection state. Holds no token or secret by design. */
+export interface EnphaseStatus {
+  connected: boolean;
+  client_configured: boolean;
+  token_updated_at: string | null;
+  last_successful_poll_at: string | null;
+  token_warning: string | null;
+}
+
 /** Fields the Setup form can send. Null clears a value. */
 export type SettingsPayload = {
   [K in keyof SystemSettings]?: SystemSettings[K] | null;
@@ -104,4 +113,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  getEnphaseStatus: () => apiFetch<EnphaseStatus>("/api/auth/enphase/status"),
+  getEnphaseConsentUrl: () =>
+    apiFetch<{ authorization_url: string }>("/api/auth/enphase/authorize"),
 };
