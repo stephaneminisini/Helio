@@ -4,7 +4,54 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from helio.analytics.summarizer import build_daily_summary, build_monthly_summary
+from helio.analytics import summarizer
+from helio.analytics.summarizer import (
+    build_daily_summary,
+    build_monthly_summary,
+    rebuild_all_summaries,
+)
+
+
+def _session_returning_days(days: list[date]) -> AsyncMock:
+    """Build a mocked session whose SELECT returns `days`."""
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=days)))
+        )
+    )
+    return session
+
+
+@pytest.mark.asyncio
+async def test_rebuild_all_summaries_covers_every_day_and_month(monkeypatch):
+    """Each stored day is rebuilt once, and each month it belongs to once."""
+    days = [date(2024, 4, 28), date(2024, 4, 29), date(2024, 5, 1)]
+    daily = AsyncMock()
+    monthly = AsyncMock()
+    monkeypatch.setattr(summarizer, "build_daily_summary", daily)
+    monkeypatch.setattr(summarizer, "build_monthly_summary", monthly)
+
+    result = await rebuild_all_summaries(_session_returning_days(days), MagicMock(id=1))
+
+    assert result == (3, 2)
+    assert [call.args[2] for call in daily.await_args_list] == days
+    assert [call.args[2] for call in monthly.await_args_list] == [
+        date(2024, 4, 1),
+        date(2024, 5, 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_all_summaries_is_a_no_op_without_intervals(monkeypatch):
+    """Nothing to aggregate must not write empty summaries."""
+    daily = AsyncMock()
+    monkeypatch.setattr(summarizer, "build_daily_summary", daily)
+
+    result = await rebuild_all_summaries(_session_returning_days([]), MagicMock(id=1))
+
+    assert result == (0, 0)
+    daily.assert_not_awaited()
 
 
 @pytest.mark.asyncio

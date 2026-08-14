@@ -61,7 +61,7 @@ async def test_daily_poll_skips_irradiance_without_coordinates(poll_env, logged)
     """Fetching 0,0 would silently corrupt PR, so the step must be skipped."""
     _, steps = poll_env
 
-    await scheduler._daily_poll()
+    await scheduler.run_daily_poll()
 
     steps["poll_irradiance"].assert_not_awaited()
     messages = "".join(logged)
@@ -75,7 +75,7 @@ async def test_daily_poll_uses_the_configured_coordinates(poll_env):
     system.latitude = Decimal("45.5231")
     system.longitude = Decimal("-122.6765")
 
-    await scheduler._daily_poll()
+    await scheduler.run_daily_poll()
 
     irradiance = steps["poll_irradiance"]
     irradiance.assert_awaited_once()
@@ -88,7 +88,7 @@ async def test_daily_poll_still_polls_intervals_without_coordinates(poll_env):
     """Production data does not depend on the site location."""
     _, steps = poll_env
 
-    await scheduler._daily_poll()
+    await scheduler.run_daily_poll()
 
     steps["poll_intervals"].assert_awaited_once()
     steps["build_daily_summary"].assert_awaited_once()
@@ -111,7 +111,7 @@ async def test_daily_poll_aborts_on_token_error_without_crashing(
         ),
     )
 
-    await scheduler._daily_poll()
+    await scheduler.run_daily_poll()
 
     combined = "".join(logged)
     assert "FERNET_KEY" in combined
