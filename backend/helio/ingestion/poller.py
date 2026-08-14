@@ -5,9 +5,36 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helio.db.models import DailySummary, EnergyInterval, Irradiance, PollLog
+from helio.db.models import DailySummary, EnergyInterval, Irradiance, PollLog, System
 from helio.ingestion.enphase_client import EnphaseClient
 from helio.ingestion.irradiance_client import IrradianceClient
+
+MISSING_COORDINATES_MESSAGE = (
+    "Irradiance skipped: this system has no latitude or longitude. Open the "
+    "Setup tab at http://localhost:3000, save your site coordinates, and run "
+    "the poll again. Performance ratio stays unavailable until then."
+)
+
+
+def irradiance_location(system: System) -> tuple[float, float] | None:
+    """Return the site coordinates, or None when they are not configured.
+
+    Irradiance is location-based, so polling without coordinates would fetch
+    the series for 0,0 in the Gulf of Guinea and silently corrupt every
+    performance ratio derived from it. Callers skip the irradiance step
+    instead.
+
+    Args:
+        system: The configured system.
+
+    Returns:
+        Tuple of (latitude, longitude), or None after logging a warning if
+        either coordinate is unset.
+    """
+    if system.latitude is None or system.longitude is None:
+        logger.warning(MISSING_COORDINATES_MESSAGE)
+        return None
+    return float(system.latitude), float(system.longitude)
 
 
 async def detect_gaps(
