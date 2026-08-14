@@ -40,6 +40,22 @@ async def detect_gaps(
     return sorted(all_dates - present)
 
 
+async def recent_polls(session: AsyncSession, limit: int = 10) -> list[PollLog]:
+    """Return the most recent poll_log rows, newest first.
+
+    Args:
+        session: Active async database session.
+        limit: Maximum number of rows to return.
+
+    Returns:
+        PollLog rows ordered by start time descending.
+    """
+    result = await session.execute(
+        select(PollLog).order_by(PollLog.started_at.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def poll_intervals(
     session: AsyncSession,
     client: EnphaseClient,
