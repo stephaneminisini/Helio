@@ -21,6 +21,9 @@ export function SetupPage() {
       await save({
         name: fd.get("name") as string,
         location: fd.get("location") as string,
+        // Blank clears the value; an empty string would be a 422 on a Decimal.
+        latitude: (fd.get("latitude") as string) || null,
+        longitude: (fd.get("longitude") as string) || null,
         system_size_kw: fd.get("system_size_kw") as string,
         panel_count: fd.get("panel_count")
           ? Number(fd.get("panel_count"))
@@ -45,7 +48,8 @@ export function SetupPage() {
     label: string,
     name: string,
     defaultValue: string | number | null,
-    type = "text"
+    type = "text",
+    attrs?: React.InputHTMLAttributes<HTMLInputElement>
   ) => (
     <div className="flex flex-col gap-1">
       <label className="text-xs text-gray-400 uppercase tracking-wider">
@@ -55,6 +59,7 @@ export function SetupPage() {
         name={name}
         type={type}
         defaultValue={defaultValue ?? ""}
+        {...attrs}
         className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-solar-500"
       />
     </div>
@@ -66,6 +71,24 @@ export function SetupPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         {field("System Name", "name", data.name)}
         {field("Location", "location", data.location)}
+        <div className="grid grid-cols-2 gap-4">
+          {field("Latitude", "latitude", data.latitude, "number", {
+            min: -90,
+            max: 90,
+            step: "any",
+            placeholder: "-90 to 90",
+          })}
+          {field("Longitude", "longitude", data.longitude, "number", {
+            min: -180,
+            max: 180,
+            step: "any",
+            placeholder: "-180 to 180",
+          })}
+        </div>
+        <p className="text-xs text-gray-500">
+          Coordinates are required to fetch irradiance. Without them the
+          irradiance poll is skipped and Performance Ratio stays unavailable.
+        </p>
         {field("System Size (kW)", "system_size_kw", data.system_size_kw, "number")}
         {field("Panel Count", "panel_count", data.panel_count, "number")}
         {field("Panel Wattage (W)", "panel_wattage_w", data.panel_wattage_w, "number")}

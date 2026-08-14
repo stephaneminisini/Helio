@@ -350,6 +350,74 @@ async def test_get_settings_returns_values_persisted_by_post():
         assert fetched.json()[field] == value
 
 
+def _configured_system() -> MagicMock:
+    """A stored system with every SettingsResponse field populated."""
+    system = MagicMock(spec=System)
+    system.enphase_system_id = "test-001"
+    system.name = "Roof Array"
+    system.location = "Portland, OR"
+    system.latitude = None
+    system.longitude = None
+    system.system_size_kw = Decimal("10.0")
+    system.panel_count = 30
+    system.panel_wattage_w = 400
+    system.install_date = date(2023, 1, 1)
+    system.tilt_angle_deg = Decimal("30.0")
+    system.azimuth_deg = Decimal("180.0")
+    system.degradation_rate = Decimal("0.5")
+    system.irradiance_source = "nrel"
+    return system
+
+
+@pytest.mark.asyncio
+async def test_put_settings_persists_coordinates():
+    """AC2: coordinates saved from the Setup form come back on reload."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        saved = await client.put(
+            "/api/settings",
+            json={"latitude": "45.523100", "longitude": "-122.676500"},
+            headers={"Content-Type": "application/json"},
+        )
+        reloaded = await client.get("/api/settings")
+
+    assert saved.status_code == 200
+    assert system.latitude == Decimal("45.523100")
+    assert system.longitude == Decimal("-122.676500")
+    assert reloaded.json()["latitude"] == "45.523100"
+    assert reloaded.json()["longitude"] == "-122.676500"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("latitude", "91.0"),
+        ("latitude", "-90.1"),
+        ("longitude", "180.5"),
+        ("longitude", "-181.0"),
+    ],
+)
+async def test_put_settings_422_when_coordinates_out_of_range(field, value):
+    """AC3: an out-of-range coordinate is rejected and nothing is written."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={field: value},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert [error["loc"][-1] for error in response.json()["detail"]] == [field]
+    assert getattr(system, field) is None
+    session.commit.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_put_settings_updates_system():
     mock_system = MagicMock(spec=System)

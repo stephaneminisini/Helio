@@ -17,7 +17,12 @@ from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
 from helio.ingestion.enphase_client import EnphaseClient
 from helio.ingestion.irradiance_client import NASAClient, NRELClient
-from helio.ingestion.poller import detect_gaps, poll_intervals, poll_irradiance
+from helio.ingestion.poller import (
+    detect_gaps,
+    irradiance_location,
+    poll_intervals,
+    poll_irradiance,
+)
 
 
 async def backfill() -> None:
@@ -58,6 +63,10 @@ async def backfill() -> None:
         else:
             irr_client = NASAClient()
 
+        # Checked once, not per day, so an unconfigured site logs one warning
+        # rather than one per backfilled day.
+        location = irradiance_location(system)
+
         start = system.install_date
         end = date.today() - timedelta(days=1)
         try:
@@ -83,22 +92,22 @@ async def backfill() -> None:
             except Exception as exc:
                 logger.error("Unexpected interval error for {}: {}", day, exc)
 
-            try:
-                await poll_irradiance(
-                    session,
-                    irr_client,
-                    system.id,
-                    float(system.latitude or 0),
-                    float(system.longitude or 0),
-                    float(system.tilt_angle_deg or 30),
-                    float(system.azimuth_deg or 180),
-                    day,
-                    settings.irradiance_source,
-                )
-            except httpx.HTTPStatusError as exc:
-                logger.error("Irradiance backfill failed for {}: {}", day, exc)
-            except Exception as exc:
-                logger.error("Unexpected irradiance error for {}: {}", day, exc)
+            if location is not None:
+                try:
+                    await poll_irradiance(
+                        session,
+                        irr_client,
+                        system.id,
+                        *location,
+                        float(system.tilt_angle_deg or 30),
+                        float(system.azimuth_deg or 180),
+                        day,
+                        settings.irradiance_source,
+                    )
+                except httpx.HTTPStatusError as exc:
+                    logger.error("Irradiance backfill failed for {}: {}", day, exc)
+                except Exception as exc:
+                    logger.error("Unexpected irradiance error for {}: {}", day, exc)
 
             if intervals_ok:
                 try:

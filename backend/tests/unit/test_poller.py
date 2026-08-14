@@ -1,11 +1,35 @@
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from helio.db.models import EnergyInterval
 from helio.ingestion.enphase_client import IntervalData
-from helio.ingestion.poller import detect_gaps, poll_intervals
+from helio.ingestion.poller import detect_gaps, irradiance_location, poll_intervals
+
+
+def test_irradiance_location_returns_the_configured_coordinates():
+    system = MagicMock(latitude=Decimal("45.5231"), longitude=Decimal("-122.6765"))
+
+    assert irradiance_location(system) == (45.5231, -122.6765)
+
+
+@pytest.mark.parametrize(
+    "latitude,longitude",
+    [
+        (None, Decimal("-122.6765")),
+        (Decimal("45.5231"), None),
+        (None, None),
+    ],
+)
+def test_irradiance_location_refuses_to_default_to_the_gulf_of_guinea(
+    latitude, longitude
+):
+    """0,0 would silently corrupt every performance ratio derived from it."""
+    system = MagicMock(latitude=latitude, longitude=longitude)
+
+    assert irradiance_location(system) is None
 
 
 @pytest.mark.asyncio

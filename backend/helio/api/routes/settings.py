@@ -48,7 +48,8 @@ async def create_settings(
 
     The product is single-system, so at most one row may exist. Note that
     latitude and longitude must be supplied for irradiance data to be
-    meaningful; the ingestion layer falls back to 0,0 without them.
+    collected at all; the ingestion layer skips the irradiance step without
+    them, which leaves performance ratio unavailable.
 
     Args:
         payload: Validated request body; see SettingsCreate for required fields.
