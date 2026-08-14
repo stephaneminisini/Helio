@@ -8,7 +8,13 @@ IrradianceSource = Literal["nrel", "nasa", "manual"]
 
 
 class SettingsResponse(BaseModel):
-    """Response model for the /api/settings endpoints."""
+    """Response model for the /api/settings endpoints.
+
+    All fields except `enphase_connected` map directly to `systems` columns.
+    `enphase_connected` is derived from the application configuration and is
+    filled in by the route, so it defaults to False when the model is built
+    straight from an ORM row.
+    """
 
     enphase_system_id: str
     name: str | None
@@ -23,6 +29,7 @@ class SettingsResponse(BaseModel):
     azimuth_deg: Decimal | None
     degradation_rate: Decimal
     irradiance_source: str
+    enphase_connected: bool = False
 
     model_config = {"from_attributes": True}
 

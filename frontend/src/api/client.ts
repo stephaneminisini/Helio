@@ -49,6 +49,7 @@ export interface SystemSettings {
   azimuth_deg: string | null;
   degradation_rate: string;
   irradiance_source: string;
+  enphase_connected: boolean;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
