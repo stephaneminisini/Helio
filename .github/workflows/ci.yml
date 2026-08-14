@@ -119,5 +119,8 @@ jobs:
       - name: Type check
         run: ./node_modules/.bin/tsc --noEmit
 
+      - name: Run tests
+        run: npm test
+
       - name: Build
         run: npm run build
