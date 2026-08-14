@@ -9,9 +9,9 @@ from helio.analytics.summarizer import build_daily_summary, build_monthly_summar
 from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
-from helio.ingestion.enphase_client import EnphaseClient
 from helio.ingestion.irradiance_client import NASAClient, NRELClient
 from helio.ingestion.poller import irradiance_location, poll_intervals, poll_irradiance
+from helio.ingestion.tokens import TokenError, build_authenticated_client
 
 scheduler = AsyncIOScheduler(timezone=settings.tz)
 
@@ -33,18 +33,10 @@ async def _daily_poll() -> None:
             logger.warning("No system found in DB - skipping poll")
             return
 
-        client = EnphaseClient(
-            client_id=settings.enphase_client_id,
-            client_secret=settings.enphase_client_secret,
-            system_id=settings.enphase_system_id,
-            access_token=settings.enphase_access_token,
-            refresh_token=settings.enphase_refresh_token,
-        )
-
         try:
-            await client.refresh_access_token()
-        except (RuntimeError, httpx.HTTPStatusError, ValueError) as exc:
-            logger.error("Token refresh failed, skipping daily poll: {}", exc)
+            client = await build_authenticated_client(session, system)
+        except (TokenError, httpx.HTTPStatusError, ValueError) as exc:
+            logger.error("Enphase authentication failed, skipping daily poll: {}", exc)
             return
         except Exception as exc:
             logger.error("Unexpected token refresh error: {}", exc)
