@@ -6,6 +6,7 @@ import pytest
 from loguru import logger
 
 from helio.ingestion import scheduler
+from helio.ingestion.tokens import TokenError
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def logged() -> list[str]:
 def poll_env(monkeypatch):
     """Patch the scheduler's collaborators so the daily poll runs in memory.
 
-    Returns the mocked system and the patched poll_irradiance.
+    Returns the mocked system and the patched ingestion steps keyed by name.
     """
     system = MagicMock(
         id=1,
@@ -40,23 +41,29 @@ def poll_env(monkeypatch):
         yield session
 
     monkeypatch.setattr(scheduler, "AsyncSessionLocal", factory)
-    monkeypatch.setattr(scheduler, "EnphaseClient", MagicMock(return_value=AsyncMock()))
-    monkeypatch.setattr(scheduler, "poll_intervals", AsyncMock())
-    monkeypatch.setattr(scheduler, "build_daily_summary", AsyncMock())
-    monkeypatch.setattr(scheduler, "build_monthly_summary", AsyncMock())
-    irradiance = AsyncMock()
-    monkeypatch.setattr(scheduler, "poll_irradiance", irradiance)
-    return system, irradiance
+    monkeypatch.setattr(scheduler, "build_authenticated_client", AsyncMock())
+    steps = {
+        name: AsyncMock()
+        for name in (
+            "poll_intervals",
+            "poll_irradiance",
+            "build_daily_summary",
+            "build_monthly_summary",
+        )
+    }
+    for name, mock in steps.items():
+        monkeypatch.setattr(scheduler, name, mock)
+    return system, steps
 
 
 @pytest.mark.asyncio
 async def test_daily_poll_skips_irradiance_without_coordinates(poll_env, logged):
     """Fetching 0,0 would silently corrupt PR, so the step must be skipped."""
-    _, irradiance = poll_env
+    _, steps = poll_env
 
     await scheduler._daily_poll()
 
-    irradiance.assert_not_awaited()
+    steps["poll_irradiance"].assert_not_awaited()
     messages = "".join(logged)
     assert "Setup tab" in messages
     assert "irradiance" in messages
@@ -64,12 +71,13 @@ async def test_daily_poll_skips_irradiance_without_coordinates(poll_env, logged)
 
 @pytest.mark.asyncio
 async def test_daily_poll_uses_the_configured_coordinates(poll_env):
-    system, irradiance = poll_env
+    system, steps = poll_env
     system.latitude = Decimal("45.5231")
     system.longitude = Decimal("-122.6765")
 
     await scheduler._daily_poll()
 
+    irradiance = steps["poll_irradiance"]
     irradiance.assert_awaited_once()
     latitude, longitude = irradiance.await_args.args[3:5]
     assert (latitude, longitude) == (45.5231, -122.6765)
@@ -78,7 +86,35 @@ async def test_daily_poll_uses_the_configured_coordinates(poll_env):
 @pytest.mark.asyncio
 async def test_daily_poll_still_polls_intervals_without_coordinates(poll_env):
     """Production data does not depend on the site location."""
+    _, steps = poll_env
+
     await scheduler._daily_poll()
 
-    scheduler.poll_intervals.assert_awaited_once()
-    scheduler.build_daily_summary.assert_awaited_once()
+    steps["poll_intervals"].assert_awaited_once()
+    steps["build_daily_summary"].assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_daily_poll_aborts_on_token_error_without_crashing(
+    poll_env, logged, monkeypatch
+):
+    """An undecryptable token logs an actionable error and stops the poll."""
+    _, steps = poll_env
+    monkeypatch.setattr(
+        scheduler,
+        "build_authenticated_client",
+        AsyncMock(
+            side_effect=TokenError(
+                "Stored Enphase refresh token cannot be "
+                "decrypted with the current FERNET_KEY"
+            )
+        ),
+    )
+
+    await scheduler._daily_poll()
+
+    combined = "".join(logged)
+    assert "FERNET_KEY" in combined
+    assert "skipping daily poll" in combined
+    for mock in steps.values():
+        mock.assert_not_awaited()
