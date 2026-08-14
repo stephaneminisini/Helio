@@ -41,6 +41,8 @@ export interface SystemSettings {
   enphase_system_id: string;
   name: string | null;
   location: string | null;
+  latitude: string | null;
+  longitude: string | null;
   system_size_kw: string | null;
   panel_count: number | null;
   panel_wattage_w: number | null;
@@ -49,6 +51,38 @@ export interface SystemSettings {
   azimuth_deg: string | null;
   degradation_rate: string;
   irradiance_source: string;
+  enphase_connected: boolean;
+}
+
+/** Enphase connection state. Holds no token or secret by design. */
+export interface EnphaseStatus {
+  connected: boolean;
+  client_configured: boolean;
+  token_updated_at: string | null;
+  last_successful_poll_at: string | null;
+  token_warning: string | null;
+}
+
+/** Fields the Setup form can send. Null clears a value. */
+export type SettingsPayload = {
+  [K in keyof SystemSettings]?: SystemSettings[K] | null;
+};
+
+/** A create payload; the API requires these two fields. */
+export interface NewSystemPayload extends SettingsPayload {
+  enphase_system_id: string;
+  install_date: string;
+}
+
+/** Carries the HTTP status so callers can tell 404 apart from a real failure. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -57,7 +91,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!response.ok) {
-    throw new Error(`API error ${response.status}: ${await response.text()}`);
+    throw new ApiError(
+      response.status,
+      `API error ${response.status}: ${await response.text()}`
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -66,9 +103,17 @@ export const api = {
   getOverview: () => apiFetch<OverviewData>("/api/overview"),
   getEfficiency: () => apiFetch<EfficiencyData>("/api/efficiency"),
   getSettings: () => apiFetch<SystemSettings>("/api/settings"),
-  updateSettings: (data: Partial<SystemSettings>) =>
+  createSettings: (data: NewSystemPayload) =>
+    apiFetch<SystemSettings>("/api/settings", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateSettings: (data: SettingsPayload) =>
     apiFetch<SystemSettings>("/api/settings", {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  getEnphaseStatus: () => apiFetch<EnphaseStatus>("/api/auth/enphase/status"),
+  getEnphaseConsentUrl: () =>
+    apiFetch<{ authorization_url: string }>("/api/auth/enphase/authorize"),
 };

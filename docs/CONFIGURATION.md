@@ -22,6 +22,23 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 | `ENPHASE_CLIENT_ID` | ✅ | — | Client ID from your Enphase developer app |
 | `ENPHASE_CLIENT_SECRET` | ✅ | — | Client Secret from your Enphase developer app |
 | `ENPHASE_SYSTEM_ID` | ✅ | — | Your Enphase system ID (visible in Enlighten URL) |
+| `ENPHASE_REDIRECT_URI` | No | `http://localhost:8000/api/auth/enphase/callback` | OAuth callback URL. Must be registered on your Enphase app and reachable from your browser |
+| `ENPHASE_ACCESS_TOKEN` | No | — | Optional bootstrap token; ignored once the account is connected from the Setup tab |
+| `ENPHASE_REFRESH_TOKEN` | No | — | Optional bootstrap token; ignored once the account is connected from the Setup tab |
+
+### Connecting your Enphase account
+
+Client ID and secret stay on the server; the tokens are obtained through the browser:
+
+1. Register `ENPHASE_REDIRECT_URI` as a redirect URI on your app at https://developer-v4.enphase.com.
+2. Open the dashboard, go to the **Setup** tab, and save your system settings.
+3. Click **Connect to Enphase** and approve access.
+4. Enphase redirects to the callback, which exchanges the authorization code and stores the
+   token pair encrypted with `FERNET_KEY`. The Setup tab then shows the connection status and
+   the last successful poll time.
+
+Enphase rotates the refresh token on every use and it expires 30 days after issue, so a system
+that polls daily stays connected. After a longer outage, click **Reconnect to Enphase**.
 
 ---
 
@@ -65,6 +82,7 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `VITE_API_BASE_URL` | No | `http://localhost:8000` | Base URL of the API server, as seen from the browser. Change this if you deploy behind a reverse proxy or use a custom domain. |
+| `FRONTEND_BASE_URL` | No | `http://localhost:3000` | Base URL of the dashboard. The Enphase OAuth callback redirects the browser back here. |
 
 ---
 
@@ -81,6 +99,7 @@ POSTGRES_DB=helio
 ENPHASE_CLIENT_ID=
 ENPHASE_CLIENT_SECRET=
 ENPHASE_SYSTEM_ID=
+ENPHASE_REDIRECT_URI=http://localhost:8000/api/auth/enphase/callback
 
 # ── Security ──────────────────────────────────────────────────────────────────
 # Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -97,4 +116,5 @@ TZ=America/Montreal
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 VITE_API_BASE_URL=http://localhost:8000
+FRONTEND_BASE_URL=http://localhost:3000
 ```

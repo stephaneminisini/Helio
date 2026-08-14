@@ -6,10 +6,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from helio.api.routes.auth import router as auth_router
 from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.settings import router as settings_router
-from helio.core.config import settings
+from helio.core.config import (
+    ConfigError,
+    optional_config_warnings,
+    settings,
+    validate_startup_config,
+)
 from helio.ingestion.scheduler import scheduler, start_scheduler
 
 
@@ -22,7 +28,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     Yields:
         None during the application's lifetime.
+
+    Raises:
+        SystemExit: If required configuration is missing or malformed. Failing
+            here rather than hours later inside the scheduled poll.
     """
+    try:
+        validate_startup_config(settings)
+    except ConfigError as exc:
+        logger.error("{}", exc)
+        raise SystemExit(1) from exc
+
+    for warning in optional_config_warnings(settings):
+        logger.warning(warning)
+
     try:
         start_scheduler()
     except SchedulerAlreadyRunningError:
@@ -49,6 +68,7 @@ app.add_middleware(
 app.include_router(overview_router, prefix="/api")
 app.include_router(efficiency_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 
 @app.get("/api/health")
