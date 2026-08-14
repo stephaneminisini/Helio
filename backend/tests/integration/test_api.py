@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import IntegrityError
 
 from helio.api.main import app
+from helio.core.config import settings as app_settings
 from helio.db.models import System
 from helio.db.session import get_db
 
@@ -460,3 +461,33 @@ async def test_put_settings_updates_system():
         assert mock_system.name == "New Name"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("client_id", "client_secret", "connected"),
+    [
+        ("client-id", "client-secret", True),
+        ("", "", False),
+        ("client-id", "", False),
+        ("", "client-secret", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_get_settings_reports_enphase_connection_state(
+    monkeypatch, client_id, client_secret, connected
+):
+    """A missing Enphase credential surfaces as "not connected", not a failure."""
+    monkeypatch.setattr(app_settings, "enphase_client_id", client_id)
+    monkeypatch.setattr(app_settings, "enphase_client_secret", client_secret)
+    system = System(
+        enphase_system_id="test-005",
+        install_date=date(2023, 1, 1),
+        degradation_rate=Decimal("0.5"),
+        irradiance_source="nrel",
+    )
+
+    async with _client_with_db(_mock_session(existing=system)) as client:
+        response = await client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.json()["enphase_connected"] is connected
