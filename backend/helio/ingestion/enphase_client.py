@@ -1,13 +1,37 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from urllib.parse import urlencode
 
 import httpx
 from loguru import logger
 
 BASE_URL = "https://api.enphaseenergy.com/api/v4"
 TOKEN_URL = "https://api.enphaseenergy.com/oauth/token"
+AUTHORIZE_URL = "https://api.enphaseenergy.com/oauth/authorize"
 MAX_RETRIES = 3
+
+
+def authorize_url(client_id: str, redirect_uri: str) -> str:
+    """Build the Enphase consent-screen URL for the authorization-code flow.
+
+    Args:
+        client_id: Enphase OAuth application client ID.
+        redirect_uri: Callback URL registered with the Enphase application. It
+            must match the one sent to the token endpoint or Enphase rejects
+            the code exchange.
+
+    Returns:
+        The fully-formed consent URL to send the user's browser to.
+    """
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+        }
+    )
+    return f"{AUTHORIZE_URL}?{query}"
 
 
 @dataclass
@@ -167,6 +191,61 @@ class EnphaseClient:
         url = f"{BASE_URL}/systems/{self._system_id}"
         return await self._request("GET", url)
 
+    async def _post_token(self, data: dict[str, str]) -> dict:
+        """Call the Enphase token endpoint with the application credentials.
+
+        Args:
+            data: Form body identifying the grant being exchanged.
+
+        Returns:
+            Parsed JSON response body.
+
+        Raises:
+            httpx.HTTPStatusError: If Enphase rejects the grant.
+        """
+        async with httpx.AsyncClient() as http:
+            response = await http.post(
+                TOKEN_URL,
+                data=data,
+                auth=(self._client_id, self._client_secret),
+            )
+        response.raise_for_status()
+        return response.json()
+
+    async def authenticate(self, auth_code: str, redirect_uri: str) -> tuple[str, str]:
+        """Exchange an OAuth authorization code for an access/refresh token pair.
+
+        Args:
+            auth_code: Single-use code Enphase appended to the callback URL.
+            redirect_uri: The same redirect URI used to obtain the code.
+
+        Returns:
+            The (access_token, refresh_token) pair, also stored on the client.
+
+        Raises:
+            httpx.HTTPStatusError: If Enphase rejects the code, which is what
+                an expired, reused, or mismatched-redirect code looks like.
+            ValueError: If either token is missing from the response. Both are
+                required, so a half-populated pair is never stored.
+        """
+        body = await self._post_token(
+            {
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "redirect_uri": redirect_uri,
+            }
+        )
+        access_token = body.get("access_token")
+        refresh_token = body.get("refresh_token")
+        if not access_token or not refresh_token:
+            raise ValueError(
+                f"Token response missing access_token or refresh_token: {sorted(body)}"
+            )
+        self._access_token = access_token
+        self._refresh_token = refresh_token
+        logger.info("Enphase authorization code exchanged for tokens")
+        return access_token, refresh_token
+
     async def refresh_access_token(self) -> str:
         """Refresh the OAuth access token using the stored refresh token.
 
@@ -175,18 +254,14 @@ class EnphaseClient:
 
         Raises:
             httpx.HTTPStatusError: On token refresh failure.
+            ValueError: If the response omits access_token.
         """
-        async with httpx.AsyncClient() as http:
-            response = await http.post(
-                TOKEN_URL,
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": self._refresh_token,
-                },
-                auth=(self._client_id, self._client_secret),
-            )
-        response.raise_for_status()
-        body = response.json()
+        body = await self._post_token(
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": self._refresh_token,
+            }
+        )
         new_token = body.get("access_token")
         if new_token is None:
             raise ValueError(
