@@ -51,6 +51,7 @@ export interface SystemSettings {
   azimuth_deg: string | null;
   degradation_rate: string;
   irradiance_source: string;
+  enphase_connected: boolean;
 }
 
 /** Enphase connection state. Holds no token or secret by design. */
