@@ -95,14 +95,20 @@ async def test_put_settings_404_with_no_system():
 def _apply_insert_defaults(system: System) -> None:
     """Stand in for db.refresh(), which is a no-op on a mocked session.
 
-    degradation_rate and irradiance_source are NOT NULL and get their values
-    from SQLAlchemy column defaults applied at flush; a real refresh() then
-    reads them back. SettingsResponse types both as required, so without this
-    the handler would 500 on validation instead of returning 201. Expected
-    values are read off the model rather than hardcoded so a change to the
-    declared defaults fails the test instead of silently diverging.
+    These columns are NOT NULL and get their values from SQLAlchemy column
+    defaults applied at flush; a real refresh() then reads them back.
+    SettingsResponse types them all as required, so without this the handler
+    would 500 on validation instead of returning 201. Expected values are read
+    off the model rather than hardcoded so a change to the declared defaults
+    fails the test instead of silently diverging.
     """
-    for column in ("degradation_rate", "irradiance_source"):
+    for column in (
+        "degradation_rate",
+        "warranty_degradation_rate",
+        "energy_rate_per_kwh",
+        "energy_rate_currency",
+        "irradiance_source",
+    ):
         if getattr(system, column) is None:
             setattr(system, column, System.__table__.c[column].default.arg)
 
@@ -166,7 +172,12 @@ async def test_post_settings_creates_system():
     assert data["latitude"] == "45.523100"
     assert data["longitude"] == "-122.676500"
     assert data["degradation_rate"] == "0.5"
-    assert data["irradiance_source"] == "nrel"
+    assert data["irradiance_source"] == "nasa"
+    # AC4: an install that says nothing about its warranty or tariff gets the
+    # documented defaults rather than a failed request.
+    assert data["warranty_degradation_rate"] == "0.7"
+    assert data["energy_rate_per_kwh"] == "0.15"
+    assert data["energy_rate_currency"] == "USD"
     assert len(added) == 1
     assert added[0].enphase_system_id == "test-001"
     assert added[0].install_date == date(2023, 1, 1)
@@ -193,6 +204,9 @@ async def test_post_settings_omits_none_so_column_defaults_apply():
                 "enphase_system_id": "test-005",
                 "install_date": "2023-01-01",
                 "degradation_rate": None,
+                "warranty_degradation_rate": None,
+                "energy_rate_per_kwh": None,
+                "energy_rate_currency": None,
                 "irradiance_source": None,
             },
             headers={"Content-Type": "application/json"},
@@ -285,6 +299,12 @@ async def test_post_settings_422_when_required_field_missing(payload, expected_f
         ("tilt_angle_deg", "12345.67"),
         ("azimuth_deg", "361.0"),
         ("degradation_rate", "1234.5"),
+        ("warranty_degradation_rate", "-0.1"),
+        ("warranty_degradation_rate", "1234.5"),
+        ("energy_rate_per_kwh", "-0.01"),
+        ("energy_rate_per_kwh", "10000"),
+        ("energy_rate_currency", "usd"),
+        ("energy_rate_currency", "DOLLARS"),
         ("irradiance_source", "totally-made-up"),
     ],
 )
@@ -335,6 +355,9 @@ async def test_get_settings_returns_values_persisted_by_post():
         "tilt_angle_deg": "30.00",
         "azimuth_deg": "180.00",
         "degradation_rate": "0.500",
+        "warranty_degradation_rate": "0.600",
+        "energy_rate_per_kwh": "0.2350",
+        "energy_rate_currency": "EUR",
         "irradiance_source": "nasa",
     }
 
@@ -366,7 +389,10 @@ def _configured_system() -> MagicMock:
     system.tilt_angle_deg = Decimal("30.0")
     system.azimuth_deg = Decimal("180.0")
     system.degradation_rate = Decimal("0.5")
-    system.irradiance_source = "nrel"
+    system.warranty_degradation_rate = Decimal("0.7")
+    system.energy_rate_per_kwh = Decimal("0.15")
+    system.energy_rate_currency = "USD"
+    system.irradiance_source = "nasa"
     return system
 
 
@@ -420,6 +446,27 @@ async def test_put_settings_422_when_coordinates_out_of_range(field, value):
 
 
 @pytest.mark.asyncio
+async def test_put_settings_422_when_irradiance_source_unsupported():
+    """AC3: ingestion reads this value, so an unusable source is rejected here."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"irradiance_source": "totally-made-up"},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert [error["loc"][-1] for error in detail] == ["irradiance_source"]
+    assert "nasa" in str(detail)
+    assert system.irradiance_source == "nasa"
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_put_settings_updates_system():
     mock_system = MagicMock(spec=System)
     mock_system.enphase_system_id = "test-001"
@@ -434,7 +481,10 @@ async def test_put_settings_updates_system():
     mock_system.tilt_angle_deg = Decimal("30.0")
     mock_system.azimuth_deg = Decimal("180.0")
     mock_system.degradation_rate = Decimal("0.5")
-    mock_system.irradiance_source = "nrel"
+    mock_system.warranty_degradation_rate = Decimal("0.7")
+    mock_system.energy_rate_per_kwh = Decimal("0.15")
+    mock_system.energy_rate_currency = "USD"
+    mock_system.irradiance_source = "nasa"
 
     async def mock_execute(stmt):
         return MagicMock(scalar_one_or_none=MagicMock(return_value=mock_system))
@@ -483,7 +533,10 @@ async def test_get_settings_reports_enphase_connection_state(
         enphase_system_id="test-005",
         install_date=date(2023, 1, 1),
         degradation_rate=Decimal("0.5"),
-        irradiance_source="nrel",
+        warranty_degradation_rate=Decimal("0.7"),
+        energy_rate_per_kwh=Decimal("0.15"),
+        energy_rate_currency="USD",
+        irradiance_source="nasa",
     )
 
     async with _client_with_db(_mock_session(existing=system)) as client:
