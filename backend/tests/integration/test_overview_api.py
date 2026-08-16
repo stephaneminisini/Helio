@@ -1,0 +1,248 @@
+from contextlib import asynccontextmanager
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from helio.api.main import app
+from helio.api.routes import overview as overview_route
+from helio.db.models import System
+from helio.db.session import get_db
+
+
+def _fake_db(daily: dict[date, float]) -> AsyncMock:
+    """Serve the overview queries from an in-memory day to kWh mapping.
+
+    The route issues nine reads whose meaning lives entirely in their SQL, so
+    dispatching on the compiled statement keeps this fake indifferent to the
+    order they happen to run in. Executed statements are recorded on
+    `session.statements` so a test can assert which window was queried.
+    """
+    system = MagicMock(spec=System)
+    system.id = 1
+    statements: list[tuple[str, dict]] = []
+
+    async def execute(stmt):
+        sql = str(stmt)
+        params = stmt.compile().params
+        statements.append((sql, params))
+        if "FROM systems" in sql:
+            return MagicMock(scalar_one_or_none=MagicMock(return_value=system))
+        if "sum(daily_summaries.production_kwh)" in sql:
+            start = params.get("day_1", date.min)
+            end = params.get("day_2", date.max)
+            window = [kwh for day, kwh in daily.items() if start <= day <= end]
+            # An empty window sums to SQL NULL, which is not the same as 0 kWh.
+            return MagicMock(
+                scalar=MagicMock(return_value=sum(window) if window else None)
+            )
+        if "ORDER BY daily_summaries.production_kwh DESC" in sql:
+            best = max(daily.items(), key=lambda item: item[1], default=None)
+            row = MagicMock(day=best[0], production_kwh=best[1]) if best else None
+            return MagicMock(scalar_one_or_none=MagicMock(return_value=row))
+        stored = daily.get(params["day_1"])
+        row = MagicMock(production_kwh=stored) if stored is not None else None
+        return MagicMock(scalar_one_or_none=MagicMock(return_value=row))
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=execute)
+    session.statements = statements
+    return session
+
+
+@asynccontextmanager
+async def _client_with_db(session):
+    """Serve the app with `session` injected as the request-scoped database."""
+
+    async def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def pinned_today(monkeypatch):
+    """Pin the route's calendar so the comparison windows are deterministic."""
+
+    def pin(day: date) -> date:
+        monkeypatch.setattr(overview_route, "today", lambda: day)
+        return day
+
+    return pin
+
+
+def _single_day_lookups(session: AsyncMock) -> list[date]:
+    """The day of every single-row daily_summaries read, in order."""
+    return [
+        params["day_1"]
+        for sql, params in session.statements
+        if sql.startswith("SELECT daily_summaries.id") and "ORDER BY" not in sql
+    ]
+
+
+def _sum_windows(session: AsyncMock) -> list[tuple[date, date]]:
+    """The (start, end) window of every bounded SUM the route executed."""
+    return [
+        (params["day_1"], params["day_2"])
+        for sql, params in session.statements
+        if "sum(daily_summaries.production_kwh)" in sql and "day_2" in params
+    ]
+
+
+@pytest.mark.asyncio
+async def test_overview_returns_all_four_comparison_pairs(pinned_today):
+    """AC1: BR-05 and BR-06 each want two prior periods, not one."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db(
+        {
+            date(2025, 7, 12): 30.0,
+            date(2025, 7, 1): 10.0,
+            date(2025, 6, 12): 24.0,
+            date(2025, 6, 1): 5.0,
+            date(2024, 7, 12): 20.0,
+            date(2024, 7, 1): 8.0,
+            # Days past the 12th must not leak into a prior-period total.
+            date(2025, 6, 30): 100.0,
+            date(2024, 7, 31): 100.0,
+        }
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["day_comparison"] == {
+        "current_kwh": 30.0,
+        "prior_kwh": 20.0,
+        "pct_change": 50.0,
+    }
+    assert data["day_vs_last_month"] == {
+        "current_kwh": 30.0,
+        "prior_kwh": 24.0,
+        "pct_change": 25.0,
+    }
+    assert data["month_comparison"] == {
+        "current_kwh": 40.0,
+        "prior_kwh": 29.0,
+        "pct_change": 37.9,
+    }
+    assert data["month_vs_last_year"] == {
+        "current_kwh": 40.0,
+        "prior_kwh": 28.0,
+        "pct_change": 42.9,
+    }
+
+
+@pytest.mark.asyncio
+async def test_overview_compares_a_month_against_the_equivalent_window(pinned_today):
+    """A month-to-date figure must not be measured against a full prior month."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db({date(2025, 7, 12): 30.0})
+
+    async with _client_with_db(session) as client:
+        await client.get("/api/overview")
+
+    windows = _sum_windows(session)
+    assert (date(2025, 7, 1), date(2025, 7, 12)) in windows
+    assert (date(2025, 6, 1), date(2025, 6, 12)) in windows
+    assert (date(2024, 7, 1), date(2024, 7, 12)) in windows
+    assert (date(2024, 1, 1), date(2024, 7, 12)) in windows
+
+
+@pytest.mark.asyncio
+async def test_overview_compares_the_calendar_day_across_a_leap_year(pinned_today):
+    """AC2: 1 March is compared with 1 March, which is 366 days earlier."""
+    pinned_today(date(2024, 3, 1))
+    session = _fake_db({date(2024, 3, 1): 30.0, date(2023, 3, 1): 25.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert _single_day_lookups(session) == [
+        date(2024, 3, 1),
+        date(2024, 2, 1),
+        date(2023, 3, 1),
+    ]
+    assert response.json()["day_comparison"]["prior_kwh"] == 25.0
+
+
+@pytest.mark.asyncio
+async def test_overview_survives_a_leap_day_anchor(pinned_today):
+    """AC3: 29 February has no counterpart last year, so it uses 28 February."""
+    pinned_today(date(2024, 2, 29))
+    session = _fake_db({date(2024, 2, 29): 30.0, date(2023, 2, 28): 18.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert response.status_code == 200
+    assert _single_day_lookups(session) == [
+        date(2024, 2, 29),
+        date(2024, 1, 29),
+        date(2023, 2, 28),
+    ]
+    assert response.json()["day_comparison"]["prior_kwh"] == 18.0
+
+
+@pytest.mark.asyncio
+async def test_overview_clamps_a_month_end_anchor_to_a_shorter_month(pinned_today):
+    """31 March has no 31 February; the window ends on the 28th instead."""
+    pinned_today(date(2025, 3, 31))
+    session = _fake_db({date(2025, 3, 31): 30.0})
+
+    async with _client_with_db(session) as client:
+        await client.get("/api/overview")
+
+    assert date(2025, 2, 28) in _single_day_lookups(session)
+    assert (date(2025, 2, 1), date(2025, 2, 28)) in _sum_windows(session)
+
+
+@pytest.mark.asyncio
+async def test_overview_reports_null_for_a_prior_period_with_no_data(pinned_today):
+    """AC4: an unmeasured period is unknown, not a 100 percent improvement."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db({date(2025, 7, 12): 30.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    data = response.json()
+    for field in (
+        "day_comparison",
+        "day_vs_last_month",
+        "month_comparison",
+        "month_vs_last_year",
+        "ytd_comparison",
+    ):
+        assert data[field]["prior_kwh"] is None, field
+        assert data[field]["pct_change"] is None, field
+    assert data["month_comparison"]["current_kwh"] == 30.0
+
+
+@pytest.mark.asyncio
+async def test_overview_returns_empty_comparisons_with_no_system():
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert response.status_code == 200
+    data = response.json()
+    for field in ("day_comparison", "day_vs_last_month", "month_vs_last_year"):
+        assert data[field] == {
+            "current_kwh": 0.0,
+            "prior_kwh": None,
+            "pct_change": None,
+        }
