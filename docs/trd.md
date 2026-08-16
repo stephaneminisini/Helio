@@ -308,7 +308,9 @@ ORDER BY yr;
 
 ### 5.8 `helio/api/routes/`
 - `GET /api/overview` — today's stats + comparisons
-- `GET /api/efficiency` — PR history + degradation metrics
+- `GET /api/efficiency` — PR history + degradation metrics; each month carries
+  `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
+  marks with a dot and repeats in the tooltip
 - `GET /api/panels` — panel heatmap data
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
 - `GET/POST/PUT /api/settings` — system configuration (POST for fresh install)

@@ -3,11 +3,76 @@ import {
   LineChart,
   ResponsiveContainer,
   Tooltip,
+  TooltipProps,
   XAxis,
   YAxis,
 } from "recharts";
+import { MonthlyPRPoint } from "../api/client";
 import { StatCard } from "../components/StatCard";
 import { useEfficiency } from "../hooks/useEfficiency";
+
+/** One plotted month. The anomaly flag and its reason travel with the point so
+ * the dot renderer and the tooltip can both reach them. */
+export interface PRChartPoint {
+  month: string;
+  pr: number | null;
+  expected: number | null;
+  isAnomaly: boolean;
+  reason: string | null;
+}
+
+/** Turn the API's PR history into plottable percentages. */
+export function toChartData(history: MonthlyPRPoint[]): PRChartPoint[] {
+  return history.map((p) => ({
+    month: p.month.slice(0, 7),
+    pr:
+      p.performance_ratio !== null
+        ? +(p.performance_ratio * 100).toFixed(1)
+        : null,
+    expected: p.expected_pr !== null ? +(p.expected_pr * 100).toFixed(1) : null,
+    isAnomaly: p.is_anomaly,
+    reason: p.anomaly_reason,
+  }));
+}
+
+/**
+ * Draw a dot only on flagged months, so an anomaly stands out against a line
+ * that is otherwise bare. Recharts calls this once per point and requires an
+ * SVG element back, hence the empty group for unflagged months.
+ */
+export function anomalyDot(props: {
+  cx?: number;
+  cy?: number;
+  payload?: PRChartPoint;
+}) {
+  const { cx, cy, payload } = props;
+  if (!payload?.isAnomaly || cx === undefined || cy === undefined) {
+    return <g />;
+  }
+  return (
+    <circle cx={cx} cy={cy} r={5} fill="#ef4444" stroke="#fef2f2" strokeWidth={2}>
+      <title>{`Anomaly in ${payload.month}`}</title>
+    </circle>
+  );
+}
+
+/** Chart tooltip; adds the anomaly explanation on flagged months. */
+export function PRTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0].payload as PRChartPoint;
+  return (
+    <div className="bg-gray-800 rounded-lg px-3 py-2 text-xs">
+      <p className="text-gray-50 font-medium">{point.month}</p>
+      <p className="text-solar-400">
+        Actual PR {point.pr !== null ? `${point.pr}%` : "not available"}
+      </p>
+      {point.expected !== null && (
+        <p className="text-gray-400">Expected PR {point.expected}%</p>
+      )}
+      {point.reason !== null && <p className="text-red-400">{point.reason}</p>}
+    </div>
+  );
+}
 
 export function EfficiencyPage() {
   const { data, loading, error } = useEfficiency();
@@ -17,15 +82,8 @@ export function EfficiencyPage() {
   if (!data) return null;
 
   const { degradation, pr_history } = data;
-  const chartData = pr_history.map((p) => ({
-    month: p.month.slice(0, 7),
-    pr:
-      p.performance_ratio !== null
-        ? +(p.performance_ratio * 100).toFixed(1)
-        : null,
-    expected:
-      p.expected_pr !== null ? +(p.expected_pr * 100).toFixed(1) : null,
-  }));
+  const chartData = toChartData(pr_history);
+  const anomalies = pr_history.filter((p) => p.is_anomaly).length;
 
   return (
     <div className="space-y-6">
@@ -44,6 +102,16 @@ export function EfficiencyPage() {
           label="Warranty Threshold"
           value={`${degradation.warranty_threshold.toFixed(1)}%/yr`}
         />
+        {/* A healthy system has no anomalies, so the card only appears when
+            there is something to report. */}
+        {anomalies > 0 && (
+          <StatCard
+            label="Anomalies"
+            value={`${anomalies} ${anomalies === 1 ? "month" : "months"}`}
+            sub="Below expected PR"
+            highlight
+          />
+        )}
         {degradation.exceeds_warranty && (
           <StatCard label="Status" value="Above Threshold" highlight />
         )}
@@ -61,16 +129,13 @@ export function EfficiencyPage() {
               domain={[60, 100]}
               tick={{ fill: "#9ca3af", fontSize: 11 }}
             />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1f2937", border: "none" }}
-              labelStyle={{ color: "#f9fafb" }}
-            />
+            <Tooltip content={<PRTooltip />} />
             <Line
               type="monotone"
               dataKey="pr"
               stroke="#f59e0b"
               strokeWidth={2}
-              dot={false}
+              dot={anomalyDot}
               name="Actual PR %"
             />
             <Line
