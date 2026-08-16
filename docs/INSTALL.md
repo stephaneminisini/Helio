@@ -65,16 +65,6 @@ https://enlighten.enphaseenergy.com/web/12345678/today/graph/hours
                                           This is your System ID
 ```
 
-### Step 4 — Get an NREL API Key (for weather normalization)
-
-1. Go to [developer.nrel.gov/signup](https://developer.nrel.gov/signup/)
-2. Sign up for a free account
-3. Your API key will be emailed to you
-
-> **Skip this step** if you don't want weather-normalized efficiency calculations. Set `IRRADIANCE_SOURCE=manual` in your `.env` file.
-
----
-
 ## Clone and Configure
 
 ### Step 1 — Clone the repository
@@ -111,8 +101,7 @@ ENPHASE_SYSTEM_ID=your_system_id_here
 FERNET_KEY=your_generated_fernet_key_here
 
 # ── Weather / Irradiance ──────────────────────────────────────────
-NREL_API_KEY=your_nrel_api_key_here
-IRRADIANCE_SOURCE=nrel              # nrel | nasa | manual
+IRRADIANCE_SOURCE=nasa              # nasa | manual (seeds a new install only)
 
 # ── Polling Schedule ──────────────────────────────────────────────
 POLL_HOUR=4                         # Hour to poll (24h, local time)
@@ -272,8 +261,9 @@ make down-full   # Stop containers AND delete all data ⚠️
 ### Performance Ratio chart is flat or missing
 
 - Irradiance data may not have loaded yet — run `make poll-status` and look for `irradiance` entries
-- If using NREL, verify your `NREL_API_KEY` is valid at [developer.nrel.gov](https://developer.nrel.gov)
-- Try switching to `IRRADIANCE_SOURCE=nasa` in `.env` and running `make restart`
+- Confirm the site latitude and longitude are saved on the Setup tab; irradiance is skipped without them
+- Check the Setup tab's irradiance source is `NASA POWER` rather than `Manual`
+- NASA POWER publishes a few days behind, so the most recent days can legitimately have no irradiance yet
 
 ### Port conflicts
 

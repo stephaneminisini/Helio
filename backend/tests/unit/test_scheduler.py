@@ -6,7 +6,10 @@ import pytest
 from loguru import logger
 
 from helio.ingestion import scheduler
-from helio.ingestion.irradiance_client import NASAClient, NRELClient
+from helio.ingestion.irradiance_client import (
+    IrradianceUnavailableError,
+    NASAClient,
+)
 from helio.ingestion.tokens import TokenError
 
 
@@ -138,8 +141,7 @@ async def test_daily_poll_prefers_the_stored_source_over_the_env_var(
     """AC1: the DB value wins, so the Setup tab is not silently ignored."""
     system, steps = located_system
     system.irradiance_source = "nasa"
-    monkeypatch.setattr(scheduler.settings, "irradiance_source", "nrel")
-    monkeypatch.setattr(scheduler.settings, "nrel_api_key", "test-key")
+    monkeypatch.setattr(scheduler.settings, "irradiance_source", "manual")
 
     await scheduler.run_daily_poll()
 
@@ -152,36 +154,20 @@ async def test_daily_poll_prefers_the_stored_source_over_the_env_var(
 
 
 @pytest.mark.asyncio
-async def test_daily_poll_uses_nrel_when_the_system_selects_it(
-    located_system, monkeypatch
-):
-    """AC2: switching the source takes effect on the next poll, no restart."""
-    system, steps = located_system
-    system.irradiance_source = "nrel"
-    monkeypatch.setattr(scheduler.settings, "irradiance_source", "nasa")
-    monkeypatch.setattr(scheduler.settings, "nrel_api_key", "test-key")
+async def test_daily_poll_leaves_an_unavailable_day_as_a_gap(located_system, logged):
+    """AC3: a day the source cannot supply is logged and left for backfill."""
+    _, steps = located_system
+    steps["poll_irradiance"].side_effect = IrradianceUnavailableError(
+        "NASA POWER reported ALLSKY_SFC_SW_DWN as unavailable (-999.0) for 20240428"
+    )
 
     await scheduler.run_daily_poll()
 
-    assert isinstance(steps["poll_irradiance"].await_args.args[1], NRELClient)
-    assert steps["poll_irradiance"].await_args.args[-1] == "nrel"
-
-
-@pytest.mark.asyncio
-async def test_daily_poll_skips_irradiance_when_nrel_key_is_missing(
-    located_system, logged, monkeypatch
-):
-    """AC4: the key is named in the log and the interval poll still runs."""
-    system, steps = located_system
-    system.irradiance_source = "nrel"
-    monkeypatch.setattr(scheduler.settings, "nrel_api_key", "")
-
-    await scheduler.run_daily_poll()
-
-    steps["poll_irradiance"].assert_not_awaited()
     steps["poll_intervals"].assert_awaited_once()
     steps["build_daily_summary"].assert_awaited_once()
-    assert "NREL_API_KEY" in "".join(logged)
+    combined = "".join(logged)
+    assert "left for backfill" in combined
+    assert "20240428" in combined
 
 
 @pytest.mark.asyncio
