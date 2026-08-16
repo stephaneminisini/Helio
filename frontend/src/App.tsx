@@ -2,9 +2,10 @@ import { useState } from "react";
 import clsx from "clsx";
 import { EfficiencyPage } from "./pages/EfficiencyPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { PanelsPage } from "./pages/PanelsPage";
 import { SetupPage } from "./pages/SetupPage";
 
-type Tab = "overview" | "efficiency" | "setup";
+type Tab = "overview" | "efficiency" | "panels" | "setup";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -12,6 +13,7 @@ export default function App() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
     { id: "efficiency", label: "Efficiency" },
+    { id: "panels", label: "Panels" },
     { id: "setup", label: "Setup" },
   ];
 
@@ -41,6 +43,7 @@ export default function App() {
       <main className="px-6 py-8 max-w-6xl mx-auto">
         {tab === "overview" && <OverviewPage />}
         {tab === "efficiency" && <EfficiencyPage />}
+        {tab === "panels" && <PanelsPage />}
         {tab === "setup" && <SetupPage />}
       </main>
     </div>
