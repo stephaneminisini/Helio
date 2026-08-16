@@ -236,7 +236,6 @@ init: ## First-time setup: copy .env.example, generate key, start, migrate
 		echo "    - ENPHASE_CLIENT_ID"; \
 		echo "    - ENPHASE_CLIENT_SECRET"; \
 		echo "    - ENPHASE_SYSTEM_ID"; \
-		echo "    - NREL_API_KEY"; \
 		echo "    - POSTGRES_PASSWORD"; \
 		echo "    - TZ (your timezone)"; \
 		echo ""; \

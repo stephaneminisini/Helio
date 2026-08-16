@@ -23,7 +23,7 @@ const SYSTEM: SystemSettings = {
   warranty_degradation_rate: "0.700",
   energy_rate_per_kwh: "0.1500",
   energy_rate_currency: "USD",
-  irradiance_source: "nrel",
+  irradiance_source: "nasa",
   enphase_connected: false,
 };
 
