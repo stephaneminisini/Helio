@@ -304,7 +304,9 @@ ORDER BY yr;
 - `calculate_degradation(system_id)` — returns annual rate vs. warranty threshold
 
 ### 5.8 `helio/api/routes/`
-- `GET /api/overview` — today's stats + comparisons
+- `GET /api/overview` — today's stats + four comparison pairs (day vs last year,
+  day vs last month, month vs last month, month vs same month last year) plus
+  year to date
 - `GET /api/efficiency` — PR history + degradation metrics
 - `GET /api/panels` — panel heatmap data
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
@@ -314,6 +316,16 @@ ORDER BY yr;
 - FastAPI app entrypoint
 - CORS, lifespan (starts scheduler on startup)
 - Static file serving for React build
+
+### 5.10 `helio/core/dates.py`
+- Calendar arithmetic for like-for-like comparisons
+- `same_day_last_year()` — same month and day, so 1 March compares with 1 March
+  even across a leap year; 29 February falls back to 28 February
+- `same_day_last_month()` — same day of the previous month, clamped to that
+  month's last day (31 March gives 28 or 29 February)
+- `month_to_date()` — first of the anchor's month through the anchor itself, so
+  a partial month is only ever compared with an equally partial one
+- `today()` — the single clock read, which lets tests pin the calendar
 
 ---
 

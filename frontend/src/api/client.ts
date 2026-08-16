@@ -11,7 +11,9 @@ export interface OverviewData {
   today_kwh: number;
   current_power_w: number | null;
   day_comparison: ComparisonPair;
+  day_vs_last_month: ComparisonPair;
   month_comparison: ComparisonPair;
+  month_vs_last_year: ComparisonPair;
   ytd_comparison: ComparisonPair;
   best_day_kwh: number | null;
   best_day_date: string | null;
