@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,12 +8,15 @@ from httpx import ASGITransport, AsyncClient
 
 from helio.api.main import app
 from helio.api.routes import efficiency as efficiency_route
-from helio.db.models import System
+from helio.db.models import MonthlySummary, System
 from helio.db.session import get_db
 
 
-def _session(system: System | MagicMock | None) -> AsyncMock:
-    """A session whose System lookup yields `system` and whose month query is empty.
+def _session(
+    system: System | MagicMock | None,
+    monthly: list[MagicMock] | None = None,
+) -> AsyncMock:
+    """A session whose System lookup yields `system` and month query `monthly`.
 
     The route selects the system and then the monthly summaries; both go through
     the same execute(), so the mock satisfies either shape at once.
@@ -21,10 +25,24 @@ def _session(system: System | MagicMock | None) -> AsyncMock:
     session.execute = AsyncMock(
         return_value=MagicMock(
             scalar_one_or_none=MagicMock(return_value=system),
-            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))),
+            scalars=MagicMock(
+                return_value=MagicMock(all=MagicMock(return_value=monthly or []))
+            ),
         )
     )
     return session
+
+
+def _month(is_anomaly: bool, reason: str | None) -> MagicMock:
+    """A monthly summary row carrying whatever anomaly verdict a test needs."""
+    row = MagicMock(spec=MonthlySummary)
+    row.month = date(2024, 6, 1)
+    row.production_kwh = Decimal("880.5")
+    row.performance_ratio = Decimal("0.7600")
+    row.expected_pr = Decimal("0.9800")
+    row.is_anomaly = is_anomaly
+    row.anomaly_reason = reason
+    return row
 
 
 @asynccontextmanager
@@ -135,6 +153,38 @@ async def test_efficiency_prices_lost_production_at_the_configured_rate(
     assert lost_production.await_args.args[2] == pytest.approx(0.235)
     assert degradation["energy_rate_per_kwh"] == pytest.approx(0.235)
     assert degradation["energy_rate_currency"] == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_efficiency_exposes_the_stored_anomaly_reason(
+    two_years_dropping, lost_production
+):
+    """The chart cannot explain a flag the API keeps to itself."""
+    two_years_dropping(0.001)
+    reason = "PR 76.0% is 22.0% below expected 98.0%"
+
+    async with _client_with_db(_session(_system(), [_month(True, reason)])) as client:
+        response = await client.get("/api/efficiency")
+
+    assert response.status_code == 200
+    point = response.json()["pr_history"][0]
+    assert point["is_anomaly"] is True
+    assert point["anomaly_reason"] == reason
+
+
+@pytest.mark.asyncio
+async def test_efficiency_leaves_the_reason_null_on_a_healthy_month(
+    two_years_dropping, lost_production
+):
+    """An unflagged month has nothing to explain, so the client gets no text."""
+    two_years_dropping(0.001)
+
+    async with _client_with_db(_session(_system(), [_month(False, None)])) as client:
+        response = await client.get("/api/efficiency")
+
+    point = response.json()["pr_history"][0]
+    assert point["is_anomaly"] is False
+    assert point["anomaly_reason"] is None
 
 
 @pytest.mark.asyncio

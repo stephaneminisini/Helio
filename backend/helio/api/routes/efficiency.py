@@ -73,6 +73,7 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
             ),
             expected_pr=float(row.expected_pr) if row.expected_pr else None,
             is_anomaly=row.is_anomaly,
+            anomaly_reason=row.anomaly_reason,
         )
         for row in monthly
     ]
