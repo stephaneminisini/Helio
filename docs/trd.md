@@ -33,7 +33,7 @@
 └─────────────────────────────────────────────────────────────────┘
          │                          │
          ▼                          ▼
-  Enphase API v4            NREL / NASA POWER API
+  Enphase API v4            NASA POWER API
 ```
 
 ---
@@ -77,7 +77,7 @@ CREATE TABLE systems (
     tilt_angle_deg      NUMERIC(5, 2),
     azimuth_deg         NUMERIC(6, 2),
     degradation_rate    NUMERIC(5, 3) DEFAULT 0.5,  -- %/yr
-    irradiance_source   VARCHAR(32) DEFAULT 'nrel',
+    irradiance_source   VARCHAR(32) DEFAULT 'nasa',
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
@@ -130,7 +130,7 @@ CREATE INDEX idx_daily_system_day
 
 ### 3.4 `irradiance`
 
-Daily solar resource data from NREL or NASA POWER.
+Daily solar resource data from NASA POWER.
 
 ```sql
 CREATE TABLE irradiance (
@@ -140,7 +140,7 @@ CREATE TABLE irradiance (
     ghi_kwh_m2          NUMERIC(8, 4),   -- Global Horizontal Irradiance
     dni_kwh_m2          NUMERIC(8, 4),   -- Direct Normal Irradiance
     poa_kwh_m2          NUMERIC(8, 4),   -- Plane of Array (computed)
-    source              VARCHAR(32),     -- 'nrel' | 'nasa'
+    source              VARCHAR(32),     -- 'nasa' | 'manual'
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (system_id, day, source)
 );
@@ -288,7 +288,7 @@ ORDER BY yr;
 - Exponential backoff on rate limit (429) responses
 
 ### 5.5 `helio/ingestion/irradiance_client.py`
-- NREL PVDAQ and NASA POWER adapters behind common interface
+- NASA POWER adapter behind a common interface
 - Plane-of-Array (POA) irradiance calculation from GHI + tilt + azimuth
 
 ### 5.6 `helio/ingestion/poller.py`
@@ -401,7 +401,6 @@ services:
 | `ENPHASE_CLIENT_SECRET` | Enphase app client secret |
 | `ENPHASE_SYSTEM_ID` | Target system ID |
 | `FERNET_KEY` | Encryption key for token storage |
-| `NREL_API_KEY` | NREL PVDAQ API key |
 | `POLL_SCHEDULE_HOUR` | Hour for daily poll (default: 4) |
 | `TZ` | Timezone for scheduler (e.g. America/Montreal) |
 

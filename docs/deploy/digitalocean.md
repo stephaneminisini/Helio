@@ -47,8 +47,7 @@ In the **Environment Variables** section, add the following:
 | `ENPHASE_CLIENT_SECRET` | Your Enphase Client Secret | ✅ Yes |
 | `ENPHASE_SYSTEM_ID` | Your Enphase System ID | No |
 | `FERNET_KEY` | Generated Fernet key (see below) | ✅ Yes |
-| `NREL_API_KEY` | Your NREL API key | ✅ Yes |
-| `IRRADIANCE_SOURCE` | `nrel` | No |
+| `IRRADIANCE_SOURCE` | `nasa` | No |
 | `TZ` | Your timezone e.g. `America/Montreal` | No |
 | `POLL_HOUR` | `4` | No |
 
