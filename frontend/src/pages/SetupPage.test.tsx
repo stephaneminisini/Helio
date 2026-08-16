@@ -20,7 +20,10 @@ const SYSTEM: SystemSettings = {
   tilt_angle_deg: "30.00",
   azimuth_deg: "180.00",
   degradation_rate: "0.500",
-  irradiance_source: "nrel",
+  warranty_degradation_rate: "0.700",
+  energy_rate_per_kwh: "0.1500",
+  energy_rate_currency: "USD",
+  irradiance_source: "nasa",
   enphase_connected: false,
 };
 
@@ -127,6 +130,34 @@ describe("SetupPage", () => {
     const update = callsTo(fetchMock, SETTINGS_PATH)[1];
     expect((update[1] as RequestInit).method).toBe("PUT");
     expect(jsonBody(update)).toMatchObject({ name: "Roof Array" });
+  });
+
+  it("sends the warranty threshold and energy rate, normalising the currency", async () => {
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: [response(200, SYSTEM), response(200, SYSTEM)],
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
+    render(<SetupPage />);
+    await screen.findByRole("button", { name: "Save Settings" });
+
+    fireEvent.change(screen.getByLabelText("Warranty Threshold (%/yr)"), {
+      target: { value: "0.5" },
+    });
+    fireEvent.change(screen.getByLabelText("Energy Rate (per kWh)"), {
+      target: { value: "0.235" },
+    });
+    // The API only accepts an uppercase ISO 4217 code.
+    fireEvent.change(screen.getByLabelText("Currency"), {
+      target: { value: "eur" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+
+    await waitFor(() => expect(callsTo(fetchMock, SETTINGS_PATH)).toHaveLength(2));
+    expect(jsonBody(callsTo(fetchMock, SETTINGS_PATH)[1])).toMatchObject({
+      warranty_degradation_rate: "0.5",
+      energy_rate_per_kwh: "0.235",
+      energy_rate_currency: "EUR",
+    });
   });
 
   it("still shows an error state for a real API failure", async () => {
