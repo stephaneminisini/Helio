@@ -10,6 +10,23 @@ BASE_URL = "https://api.enphaseenergy.com/api/v4"
 TOKEN_URL = "https://api.enphaseenergy.com/oauth/token"
 AUTHORIZE_URL = "https://api.enphaseenergy.com/oauth/authorize"
 MAX_RETRIES = 3
+# The device-level telemetry endpoint caps a page at 20 devices, so a larger
+# value is silently clamped and would make the pagination arithmetic wrong.
+PANEL_PAGE_SIZE = 20
+PANEL_ACCESS_DENIED_MESSAGE = (
+    "Enphase answered {} for device-level telemetry. Per-panel monitoring needs "
+    "an Enphase plan that exposes microinverter data; the rest of the poll is "
+    "unaffected."
+)
+
+
+class PanelDataUnavailableError(Exception):
+    """Raised when Enphase will not serve device-level telemetry.
+
+    Per-panel data is not part of every Enphase plan, so this is a capability
+    limit rather than a fault: callers skip the panel step and let the rest of
+    the poll run.
+    """
 
 
 def authorize_url(client_id: str, redirect_uri: str) -> str:
@@ -47,6 +64,20 @@ class IntervalData:
     interval_start: datetime
     duration_seconds: int
     production_wh: float
+
+
+@dataclass
+class PanelEnergy:
+    """Energy produced by one microinverter over a single day.
+
+    Attributes:
+        panel_serial: Serial number of the microinverter, as reported by Enphase.
+        energy_wh: Energy produced across every interval of the day, in
+            watt-hours.
+    """
+
+    panel_serial: str
+    energy_wh: float
 
 
 class EnphaseClient:
@@ -177,6 +208,77 @@ class EnphaseClient:
                 )
             )
         return result
+
+    async def get_panel_data(self, day: date) -> list[PanelEnergy]:
+        """Fetch per-microinverter production for a single day.
+
+        Enphase reports device-level telemetry as 5-minute intervals grouped by
+        serial number, paginated at PANEL_PAGE_SIZE devices per response, and
+        resolves the day boundary in the system's own timezone. The intervals
+        are summed here so one record per panel per day reaches the caller.
+
+        Args:
+            day: Calendar date to fetch, interpreted in the system's timezone.
+
+        Returns:
+            One PanelEnergy per microinverter that reported, in the order
+            Enphase returned them. Empty if Enphase reports no devices, which is
+            also how a plan without device-level access can present.
+
+        Raises:
+            PanelDataUnavailableError: If Enphase answers 401 or 403, which is
+                what a plan without device-level access looks like.
+            RuntimeError: After MAX_RETRIES rate-limit responses.
+            httpx.HTTPStatusError: On any other non-retryable API error.
+        """
+        url = f"{BASE_URL}/systems/{self._system_id}/devices/micros/telemetry"
+        readings: list[PanelEnergy] = []
+        page = 1
+        while True:
+            try:
+                data = await self._request(
+                    "GET",
+                    url,
+                    params={
+                        "granularity": "day",
+                        "start_date": day.isoformat(),
+                        "page": page,
+                        "size": PANEL_PAGE_SIZE,
+                    },
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    raise PanelDataUnavailableError(
+                        PANEL_ACCESS_DENIED_MESSAGE.format(exc.response.status_code)
+                    ) from exc
+                raise
+            devices = data.get("devices") or []
+            if not devices:
+                break
+            for device in devices:
+                serial = device.get("serial_number")
+                if not serial:
+                    logger.warning(
+                        "Microinverter telemetry without a serial number, skipping "
+                        "(fields: {})",
+                        sorted(device),
+                    )
+                    continue
+                intervals = device.get("intervals") or []
+                readings.append(
+                    PanelEnergy(
+                        panel_serial=serial,
+                        energy_wh=float(
+                            sum(interval.get("enwh") or 0 for interval in intervals)
+                        ),
+                    )
+                )
+            # total_devices counts every device across all pages, so it is what
+            # says whether another page exists.
+            if page * PANEL_PAGE_SIZE >= (data.get("total_devices") or 0):
+                break
+            page += 1
+        return readings
 
     async def get_system_info(self) -> dict:
         """Fetch system metadata from the Enphase API.
