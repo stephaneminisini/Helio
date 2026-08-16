@@ -9,23 +9,30 @@ from helio.analytics.summarizer import build_daily_summary, build_monthly_summar
 from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
+from helio.ingestion.enphase_client import PanelDataUnavailableError
 from helio.ingestion.irradiance_client import (
     IrradianceSourceError,
     IrradianceUnavailableError,
     build_irradiance_client,
 )
-from helio.ingestion.poller import irradiance_location, poll_intervals, poll_irradiance
+from helio.ingestion.poller import (
+    irradiance_location,
+    poll_intervals,
+    poll_irradiance,
+    poll_panels,
+)
 from helio.ingestion.tokens import TokenError, build_authenticated_client
 
 scheduler = AsyncIOScheduler(timezone=settings.tz)
 
 
 async def run_daily_poll() -> None:
-    """Run the daily data ingestion job: intervals, irradiance, and summary rebuild.
+    """Run the daily ingestion job: intervals, panels, irradiance, and summaries.
 
-    Fetches yesterday's production data from Enphase, irradiance from the configured
-    source, builds the daily summary, and triggers a monthly summary on the first
-    day of each month. Public because `make poll-now` runs the same job on demand.
+    Fetches yesterday's production data from Enphase, per-panel telemetry where
+    the plan exposes it, irradiance from the configured source, builds the daily
+    summary, and triggers a monthly summary on the first day of each month.
+    Public because `make poll-now` runs the same job on demand.
     """
     yesterday = date.today() - timedelta(days=1)
     logger.info("Daily poll starting for {}", yesterday)
@@ -54,6 +61,21 @@ async def run_daily_poll() -> None:
         except Exception as exc:
             logger.error("Unexpected interval poll error for {}: {}", yesterday, exc)
             failed_steps.append("intervals")
+
+        try:
+            await poll_panels(session, client, system.id, yesterday)
+        except PanelDataUnavailableError as exc:
+            # Device-level telemetry is not part of every Enphase plan, so its
+            # absence is a capability limit rather than a poll failure: one
+            # warning, and it stays out of failed_steps so an install that will
+            # never have panel data does not report a failing poll every day.
+            logger.warning("Panel poll skipped for {}: {}", yesterday, exc)
+        except (RuntimeError, httpx.HTTPStatusError) as exc:
+            logger.error("Panel poll failed for {}: {}", yesterday, exc)
+            failed_steps.append("panels")
+        except Exception as exc:
+            logger.error("Unexpected panel poll error for {}: {}", yesterday, exc)
+            failed_steps.append("panels")
 
         location = irradiance_location(system)
         try:
