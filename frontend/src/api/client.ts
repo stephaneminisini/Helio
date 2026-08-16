@@ -57,6 +57,28 @@ export interface EfficiencyData {
   };
 }
 
+/** One panel's production over the window, relative to the rest of the fleet. */
+export interface PanelPoint {
+  panel_serial: string;
+  energy_wh: number;
+  /** Production as a fraction of the fleet average, so 1.0 is average. */
+  normalized_efficiency: number;
+  /** Null when the fleet is too small or too uniform to measure a spread. */
+  deviation_sigma: number | null;
+  is_underperforming: boolean;
+}
+
+export interface PanelsData {
+  panels: PanelPoint[];
+  fleet_average_wh: number;
+  fleet_stdev_wh: number;
+  window_start: string;
+  window_end: string;
+  /** False when there is nothing to plot; unavailable_reason says why. */
+  data_available: boolean;
+  unavailable_reason: string | null;
+}
+
 export interface SystemSettings {
   enphase_system_id: string;
   name: string | null;
@@ -125,6 +147,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getOverview: () => apiFetch<OverviewData>("/api/overview"),
   getEfficiency: () => apiFetch<EfficiencyData>("/api/efficiency"),
+  getPanels: () => apiFetch<PanelsData>("/api/panels"),
   getSettings: () => apiFetch<SystemSettings>("/api/settings"),
   createSettings: (data: NewSystemPayload) =>
     apiFetch<SystemSettings>("/api/settings", {
