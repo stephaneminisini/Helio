@@ -172,7 +172,7 @@ async def test_post_settings_creates_system():
     assert data["latitude"] == "45.523100"
     assert data["longitude"] == "-122.676500"
     assert data["degradation_rate"] == "0.5"
-    assert data["irradiance_source"] == "nrel"
+    assert data["irradiance_source"] == "nasa"
     # AC4: an install that says nothing about its warranty or tariff gets the
     # documented defaults rather than a failed request.
     assert data["warranty_degradation_rate"] == "0.7"
@@ -392,7 +392,7 @@ def _configured_system() -> MagicMock:
     system.warranty_degradation_rate = Decimal("0.7")
     system.energy_rate_per_kwh = Decimal("0.15")
     system.energy_rate_currency = "USD"
-    system.irradiance_source = "nrel"
+    system.irradiance_source = "nasa"
     return system
 
 
@@ -446,6 +446,27 @@ async def test_put_settings_422_when_coordinates_out_of_range(field, value):
 
 
 @pytest.mark.asyncio
+async def test_put_settings_422_when_irradiance_source_unsupported():
+    """AC3: ingestion reads this value, so an unusable source is rejected here."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"irradiance_source": "totally-made-up"},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert [error["loc"][-1] for error in detail] == ["irradiance_source"]
+    assert "nasa" in str(detail)
+    assert system.irradiance_source == "nasa"
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_put_settings_updates_system():
     mock_system = MagicMock(spec=System)
     mock_system.enphase_system_id = "test-001"
@@ -463,7 +484,7 @@ async def test_put_settings_updates_system():
     mock_system.warranty_degradation_rate = Decimal("0.7")
     mock_system.energy_rate_per_kwh = Decimal("0.15")
     mock_system.energy_rate_currency = "USD"
-    mock_system.irradiance_source = "nrel"
+    mock_system.irradiance_source = "nasa"
 
     async def mock_execute(stmt):
         return MagicMock(scalar_one_or_none=MagicMock(return_value=mock_system))
@@ -515,7 +536,7 @@ async def test_get_settings_reports_enphase_connection_state(
         warranty_degradation_rate=Decimal("0.7"),
         energy_rate_per_kwh=Decimal("0.15"),
         energy_rate_currency="USD",
-        irradiance_source="nrel",
+        irradiance_source="nasa",
     )
 
     async with _client_with_db(_mock_session(existing=system)) as client:

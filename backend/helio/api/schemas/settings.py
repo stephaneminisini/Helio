@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-IrradianceSource = Literal["nrel", "nasa", "manual"]
+IrradianceSource = Literal["nasa", "manual"]
 
 # ISO 4217 alphabetic code. Only the shape is checked: validating against the
 # full code list would need a currency dataset for no benefit here, since the
@@ -69,7 +69,12 @@ class SettingsCreate(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    """Request body for PUT /api/settings. All fields optional for partial updates."""
+    """Request body for PUT /api/settings. All fields optional for partial updates.
+
+    `irradiance_source` is constrained to the supported sources because ingestion
+    selects its client from the stored value: an unrecognised source would be
+    accepted here and then skip irradiance on every subsequent poll.
+    """
 
     name: str | None = None
     location: str | None = None
@@ -85,4 +90,4 @@ class SettingsUpdate(BaseModel):
     warranty_degradation_rate: Decimal | None = Field(default=None, ge=0, le=99)
     energy_rate_per_kwh: Decimal | None = Field(default=None, ge=0, lt=10_000)
     energy_rate_currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)
-    irradiance_source: str | None = None
+    irradiance_source: IrradianceSource | None = None
