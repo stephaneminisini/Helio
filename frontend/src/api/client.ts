@@ -19,7 +19,10 @@ export interface YtdPoint {
 export interface OverviewData {
   today: string;
   today_kwh: number;
+  /** Latest reported output, null when Enphase could not be reached. */
   current_power_w: number | null;
+  /** When the envoy measured that output, as an ISO timestamp. */
+  current_power_at: string | null;
   day_comparison: ComparisonPair;
   day_vs_last_month: ComparisonPair;
   month_comparison: ComparisonPair;
