@@ -37,6 +37,25 @@ def same_day_last_month(anchor: date) -> date:
     return date(year, month, min(anchor.day, monthrange(year, month)[1]))
 
 
+def same_day_in_year(anchor: date, year: int) -> date:
+    """Return the anchor's calendar day in another year.
+
+    Args:
+        anchor: The day whose month and day are being carried over.
+        year: The year to land in.
+
+    Returns:
+        The same month and day in the requested year. 29 February has no
+        counterpart in a common year, so it falls back to 28 February, which
+        keeps the comparison a whole number of calendar years and one season
+        apart.
+    """
+    try:
+        return anchor.replace(year=year)
+    except ValueError:
+        return date(year, 2, 28)
+
+
 def same_day_last_year(anchor: date) -> date:
     """Return the same calendar day one year before the anchor.
 
@@ -44,14 +63,9 @@ def same_day_last_year(anchor: date) -> date:
         anchor: The day to step back from.
 
     Returns:
-        The same month and day in the previous year. 29 February has no
-        counterpart in a common year, so it falls back to 28 February, which
-        keeps the comparison exactly one calendar year and one season apart.
+        The same month and day in the previous year.
     """
-    try:
-        return anchor.replace(year=anchor.year - 1)
-    except ValueError:
-        return date(anchor.year - 1, 2, 28)
+    return same_day_in_year(anchor, anchor.year - 1)
 
 
 def month_to_date(anchor: date) -> tuple[date, date]:

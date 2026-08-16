@@ -6,6 +6,16 @@ export interface ComparisonPair {
   pct_change: number | null;
 }
 
+/** Production from 1 January to the same day of the year, for one year. */
+export interface YtdPoint {
+  year: number;
+  production_kwh: number;
+  /** How the current year compares with this one; null for the current year. */
+  pct_change: number | null;
+  /** True when the system was installed mid-year, so the window is short. */
+  is_partial: boolean;
+}
+
 export interface OverviewData {
   today: string;
   today_kwh: number;
@@ -14,7 +24,7 @@ export interface OverviewData {
   day_vs_last_month: ComparisonPair;
   month_comparison: ComparisonPair;
   month_vs_last_year: ComparisonPair;
-  ytd_comparison: ComparisonPair;
+  ytd_history: YtdPoint[];
   best_day_kwh: number | null;
   best_day_date: string | null;
   all_time_kwh: number;
