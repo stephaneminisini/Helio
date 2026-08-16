@@ -11,16 +11,19 @@ from helio.db.models import System
 from helio.db.session import get_db
 
 
-def _fake_db(daily: dict[date, float]) -> AsyncMock:
+def _fake_db(
+    daily: dict[date, float], install_date: date = date(2020, 1, 1)
+) -> AsyncMock:
     """Serve the overview queries from an in-memory day to kWh mapping.
 
-    The route issues nine reads whose meaning lives entirely in their SQL, so
-    dispatching on the compiled statement keeps this fake indifferent to the
-    order they happen to run in. Executed statements are recorded on
-    `session.statements` so a test can assert which window was queried.
+    The route's reads carry their meaning entirely in their SQL, so dispatching
+    on the compiled statement keeps this fake indifferent to the order they
+    happen to run in. Executed statements are recorded on `session.statements`
+    so a test can assert which window was queried.
     """
     system = MagicMock(spec=System)
     system.id = 1
+    system.install_date = install_date
     statements: list[tuple[str, dict]] = []
 
     async def execute(stmt):
@@ -221,11 +224,103 @@ async def test_overview_reports_null_for_a_prior_period_with_no_data(pinned_toda
         "day_vs_last_month",
         "month_comparison",
         "month_vs_last_year",
-        "ytd_comparison",
     ):
         assert data[field]["prior_kwh"] is None, field
         assert data[field]["pct_change"] is None, field
     assert data["month_comparison"]["current_kwh"] == 30.0
+    # Only the current year has anything stored, so it is the whole series.
+    assert [point["year"] for point in data["ytd_history"]] == [2025]
+    assert data["ytd_history"][0]["pct_change"] is None
+
+
+@pytest.mark.asyncio
+async def test_overview_lists_year_to_date_for_every_year_since_install(pinned_today):
+    """AC1: BR-07 asks for prior years, plural, each over the same window."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db(
+        {
+            date(2023, 3, 1): 1000.0,
+            date(2024, 3, 1): 1200.0,
+            date(2025, 3, 1): 900.0,
+            # Later in each year, outside the 1 January to 12 July window.
+            date(2023, 9, 1): 500.0,
+            date(2024, 9, 1): 500.0,
+        },
+        install_date=date(2023, 1, 1),
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert response.status_code == 200
+    assert response.json()["ytd_history"] == [
+        {
+            "year": 2023,
+            "production_kwh": 1000.0,
+            "pct_change": -10.0,
+            "is_partial": False,
+        },
+        {
+            "year": 2024,
+            "production_kwh": 1200.0,
+            "pct_change": -25.0,
+            "is_partial": False,
+        },
+        {
+            "year": 2025,
+            "production_kwh": 900.0,
+            "pct_change": None,
+            "is_partial": False,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_overview_marks_the_install_year_partial(pinned_today):
+    """AC2: a year the system only worked half of is not a like-for-like year."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db(
+        {date(2023, 6, 1): 400.0, date(2024, 3, 1): 1200.0, date(2025, 3, 1): 900.0},
+        install_date=date(2023, 5, 20),
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    partial = {
+        point["year"]: point["is_partial"] for point in response.json()["ytd_history"]
+    }
+    assert partial == {2023: True, 2024: False, 2025: False}
+
+
+@pytest.mark.asyncio
+async def test_overview_omits_a_year_with_no_stored_data(pinned_today):
+    """AC3: a gap in the history is a gap, not a year that produced 0 kWh."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db(
+        {date(2023, 3, 1): 1000.0, date(2025, 3, 1): 900.0},
+        install_date=date(2023, 1, 1),
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert [point["year"] for point in response.json()["ytd_history"]] == [2023, 2025]
+
+
+@pytest.mark.asyncio
+async def test_overview_year_to_date_windows_end_on_the_same_calendar_day(pinned_today):
+    """Each year is measured to 29 February's fallback, not to a drifting day."""
+    pinned_today(date(2024, 2, 29))
+    session = _fake_db({date(2024, 2, 29): 30.0}, install_date=date(2022, 6, 1))
+
+    async with _client_with_db(session) as client:
+        await client.get("/api/overview")
+
+    windows = _sum_windows(session)
+    assert (date(2022, 1, 1), date(2022, 2, 28)) in windows
+    assert (date(2023, 1, 1), date(2023, 2, 28)) in windows
+    assert (date(2024, 1, 1), date(2024, 2, 29)) in windows
 
 
 @pytest.mark.asyncio

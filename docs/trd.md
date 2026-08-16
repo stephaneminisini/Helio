@@ -341,8 +341,9 @@ ORDER BY yr;
 
 ### 5.9 `helio/api/routes/`
 - `GET /api/overview` — today's stats + four comparison pairs (day vs last year,
-  day vs last month, month vs last month, month vs same month last year) plus
-  year to date
+  day vs last month, month vs last month, month vs same month last year) plus a
+  year-to-date series: one entry per year since install, each 1 January through
+  the anchor's day of that year, with the current year's delta against it
 - `GET /api/efficiency` — PR history + degradation metrics; each month carries
   `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
   marks with a dot and repeats in the tooltip. The `projection` block extends the
@@ -362,6 +363,8 @@ ORDER BY yr;
 
 ### 5.10 `helio/core/dates.py`
 - Calendar arithmetic for like-for-like comparisons
+- `same_day_in_year(anchor, year)` — the anchor's month and day in any given
+  year; 29 February falls back to 28 February
 - `same_day_last_year()` — same month and day, so 1 March compares with 1 March
   even across a leap year; 29 February falls back to 28 February
 - `same_day_last_month()` — same day of the previous month, clamped to that
