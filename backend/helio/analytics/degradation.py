@@ -51,14 +51,16 @@ async def calculate_annual_degradation(
 async def estimate_lost_production(
     session: AsyncSession,
     system_id: int,
-    rate_per_kwh: float = 0.15,
+    rate_per_kwh: float,
 ) -> dict[str, float]:
     """Estimate total production lost due to actual PR falling below expected PR.
 
     Args:
         session: Active async database session.
         system_id: System to analyze.
-        rate_per_kwh: Electricity rate in dollars per kWh for dollar estimate.
+        rate_per_kwh: Electricity rate per kWh, in the system's configured
+            currency. Required rather than defaulted so the dollar figure can
+            never rest on an unstated assumption.
 
     Returns:
         Dict with 'lost_kwh' (float) and 'lost_dollars' (float).
