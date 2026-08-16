@@ -39,17 +39,59 @@ export interface MonthlyPRPoint {
   performance_ratio: number | null;
   expected_pr: number | null;
   is_anomaly: boolean;
+  /** The summarizer's explanation of the flag; null when is_anomaly is false. */
+  anomaly_reason: string | null;
+}
+
+/** One projected calendar year, valued at the year's mid-point. */
+export interface ProjectedYear {
+  year: number;
+  projected_pr: number;
+}
+
+export interface ProjectionSummary {
+  months_of_history: number;
+  /** PR fraction lost per year by the fitted trend; null when no fit is possible. */
+  annual_rate: number | null;
+  low_confidence: boolean;
+  warranty_breach_year: number | null;
+  years: ProjectedYear[];
 }
 
 export interface EfficiencyData {
   pr_history: MonthlyPRPoint[];
+  projection: ProjectionSummary;
   degradation: {
     annual_rates: Record<string, { avg_pr: number; annual_drop: number | null }>;
     lost_kwh: number;
     lost_dollars: number;
     warranty_threshold: number;
     exceeds_warranty: boolean;
+    energy_rate_per_kwh: number;
+    energy_rate_currency: string;
   };
+}
+
+/** One panel's production over the window, relative to the rest of the fleet. */
+export interface PanelPoint {
+  panel_serial: string;
+  energy_wh: number;
+  /** Production as a fraction of the fleet average, so 1.0 is average. */
+  normalized_efficiency: number;
+  /** Null when the fleet is too small or too uniform to measure a spread. */
+  deviation_sigma: number | null;
+  is_underperforming: boolean;
+}
+
+export interface PanelsData {
+  panels: PanelPoint[];
+  fleet_average_wh: number;
+  fleet_stdev_wh: number;
+  window_start: string;
+  window_end: string;
+  /** False when there is nothing to plot; unavailable_reason says why. */
+  data_available: boolean;
+  unavailable_reason: string | null;
 }
 
 export interface SystemSettings {
@@ -65,6 +107,9 @@ export interface SystemSettings {
   tilt_angle_deg: string | null;
   azimuth_deg: string | null;
   degradation_rate: string;
+  warranty_degradation_rate: string;
+  energy_rate_per_kwh: string;
+  energy_rate_currency: string;
   irradiance_source: string;
   enphase_connected: boolean;
 }
@@ -117,6 +162,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getOverview: () => apiFetch<OverviewData>("/api/overview"),
   getEfficiency: () => apiFetch<EfficiencyData>("/api/efficiency"),
+  getPanels: () => apiFetch<PanelsData>("/api/panels"),
   getSettings: () => apiFetch<SystemSettings>("/api/settings"),
   createSettings: (data: NewSystemPayload) =>
     apiFetch<SystemSettings>("/api/settings", {
