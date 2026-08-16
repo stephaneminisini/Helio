@@ -55,7 +55,7 @@ class System(Base):
         energy_rate_per_kwh: Electricity rate used to price lost production
             (default 0.15).
         energy_rate_currency: ISO 4217 code for energy_rate_per_kwh (default "USD").
-        irradiance_source: Source identifier for irradiance data (default "nrel").
+        irradiance_source: Source identifier for irradiance data (default "nasa").
         enphase_access_token: Fernet-encrypted Enphase OAuth access token.
         enphase_refresh_token: Fernet-encrypted Enphase OAuth refresh token.
         token_updated_at: Timestamp of the last successful token rotation.
@@ -101,7 +101,7 @@ class System(Base):
         String(3), default=DEFAULT_ENERGY_RATE_CURRENCY, server_default="USD"
     )
     irradiance_source: Mapped[str] = mapped_column(
-        String(32), default="nrel", server_default="nrel"
+        String(32), default="nasa", server_default="nasa"
     )
     # Ciphertext, not plaintext: written only via helio.ingestion.tokens so the
     # Fernet encryption cannot be bypassed. Text because Fernet output grows
@@ -269,7 +269,7 @@ class Irradiance(Base):
         ghi_kwh_m2: Global Horizontal Irradiance in kWh/m2.
         dni_kwh_m2: Direct Normal Irradiance in kWh/m2.
         poa_kwh_m2: Plane of Array Irradiance in kWh/m2.
-        source: Data source identifier (e.g. "nrel", "pvgis").
+        source: Data source identifier that supplied this row (e.g. "nasa").
         created_at: Timestamp when the record was created.
         system: Related System instance.
     """

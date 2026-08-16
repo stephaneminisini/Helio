@@ -25,7 +25,6 @@ def _cfg(**overrides) -> Settings:
         "database_url": "postgresql+asyncpg://helio:secret@db:5432/helio",
         "fernet_key": Fernet.generate_key().decode(),
         "irradiance_source": "nasa",
-        "nrel_api_key": "",
         "enphase_client_id": "client-id",
         "enphase_client_secret": "client-secret",
     }
@@ -56,24 +55,17 @@ def test_fernet_key_of_wrong_length_is_rejected():
     assert "FERNET_KEY" in str(exc_info.value)
 
 
-def test_nrel_source_without_api_key_names_both_variables():
-    with pytest.raises(ConfigError) as exc_info:
-        validate_startup_config(_cfg(irradiance_source="nrel", nrel_api_key=""))
-    message = str(exc_info.value)
-    assert "IRRADIANCE_SOURCE" in message
-    assert "NREL_API_KEY" in message
+def test_nasa_source_passes():
+    validate_startup_config(_cfg(irradiance_source="nasa"))
 
 
-def test_nrel_source_with_api_key_passes():
-    validate_startup_config(_cfg(irradiance_source="nrel", nrel_api_key="key"))
+def test_manual_source_passes():
+    validate_startup_config(_cfg(irradiance_source="manual"))
 
 
-def test_nasa_source_without_nrel_key_passes():
-    validate_startup_config(_cfg(irradiance_source="nasa", nrel_api_key=""))
-
-
-@pytest.mark.parametrize("source", ["NREL", "openweather", ""])
+@pytest.mark.parametrize("source", ["nrel", "NASA", "openweather", ""])
 def test_unknown_irradiance_source_is_rejected(source):
+    """'nrel' is among these: NREL only ever returned annual averages."""
     with pytest.raises(ConfigError) as exc_info:
         validate_startup_config(_cfg(irradiance_source=source))
     assert "IRRADIANCE_SOURCE" in str(exc_info.value)
@@ -109,7 +101,7 @@ def test_all_errors_are_reported_together():
     message = str(exc_info.value)
     assert "DATABASE_URL" in message
     assert "FERNET_KEY" in message
-    assert "NREL_API_KEY" in message
+    assert "IRRADIANCE_SOURCE" in message
 
 
 def test_enphase_configured_true_when_credentials_present():
