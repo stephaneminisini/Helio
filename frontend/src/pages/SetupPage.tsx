@@ -132,7 +132,7 @@ export function SetupPage() {
         </h1>
         {creating && (
           <p className="text-sm text-gray-400">
-            No system is configured yet. Enter your array's details to start
+            No system is configured yet. Enter your array&apos;s details to start
             collecting production data. You can change any of this later.
           </p>
         )}
