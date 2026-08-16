@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helio.api.schemas.overview import ComparisonPair, OverviewResponse, YtdPoint
+from helio.core.comparisons import pct_change
 from helio.core.dates import (
     month_to_date,
     same_day_in_year,
@@ -16,21 +17,6 @@ from helio.db.models import DailySummary, System
 from helio.db.session import get_db
 
 router = APIRouter()
-
-
-def _pct_change(current: float, prior: float | None) -> float | None:
-    """Compute percentage change from prior to current.
-
-    Args:
-        current: Current period value.
-        prior: Prior period value (may be None or zero).
-
-    Returns:
-        Percentage change rounded to 1 decimal, or None if prior is unavailable.
-    """
-    if prior is None or prior == 0:
-        return None
-    return round((current - prior) / prior * 100, 1)
 
 
 def _pair(current: float, prior: float | None) -> ComparisonPair:
@@ -47,7 +33,7 @@ def _pair(current: float, prior: float | None) -> ComparisonPair:
         than as a 100 percent improvement.
     """
     return ComparisonPair(
-        current_kwh=current, prior_kwh=prior, pct_change=_pct_change(current, prior)
+        current_kwh=current, prior_kwh=prior, pct_change=pct_change(current, prior)
     )
 
 
@@ -73,7 +59,7 @@ def _ytd_history(
             year=year,
             production_kwh=round(total, 3),
             pct_change=(
-                None if year == current_year else _pct_change(current_ytd, total)
+                None if year == current_year else pct_change(current_ytd, total)
             ),
             is_partial=install_date > date(year, 1, 1),
         )

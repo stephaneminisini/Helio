@@ -353,7 +353,14 @@ ORDER BY yr;
 - `GET /api/panels?days=30` — per-panel production, the fleet average and
   standard deviation, and the underperforming flag. Answers 200 with
   `data_available: false` and a reason when there is nothing to show
-- `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
+- `GET /api/compare?period=day|month|year&date=YYYY-MM-DD` — the named period
+  against its counterpart in every year since install, oldest first, anchor
+  last. `date` defaults to today. Windows here are whole periods rather than
+  truncated to today as on the overview, with `is_partial` marking a window that
+  production cannot fill (it runs past today, or starts before the install
+  date). A prior window with nothing stored is omitted rather than reported as
+  zero; the anchor window is always present, so a date before the install date
+  is a `200` with null values. An unsupported `period` is a `422`
 - `GET/POST/PUT /api/settings` — system configuration (POST for fresh install)
 
 ### 5.10 `helio/api/main.py`
@@ -371,7 +378,14 @@ ORDER BY yr;
   month's last day (31 March gives 28 or 29 February)
 - `month_to_date()` — first of the anchor's month through the anchor itself, so
   a partial month is only ever compared with an equally partial one
+- `whole_month()` / `whole_year()` — the complete calendar month or year, with
+  the month's last day read from the calendar rather than assumed
 - `today()` — the single clock read, which lets tests pin the calendar
+
+### 5.11 `helio/core/comparisons.py`
+- `pct_change(current, prior)` — percentage change to 1 decimal, or None when
+  the prior figure is missing or zero, so an unmeasured period reads as unknown
+  rather than as an infinite improvement
 
 ---
 
