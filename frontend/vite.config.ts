@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -14,5 +14,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // The browser smoke tests are also named *.spec.ts, and vitest would pick
+    // them up and fail on Playwright's fixtures. They belong to `npm run e2e`.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });
