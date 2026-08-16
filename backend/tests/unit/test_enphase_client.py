@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -10,6 +10,7 @@ from loguru import logger
 
 from helio.ingestion.enphase_client import (
     PANEL_PAGE_SIZE,
+    CurrentProduction,
     EnphaseClient,
     IntervalData,
     PanelDataUnavailableError,
@@ -115,6 +116,30 @@ async def test_get_intervals_raises_after_max_retries(client):
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_get_current_power_returns_the_reading_and_its_timestamp(client):
+    """AC1: a bare figure cannot be told apart from a stale one."""
+    respx.get("https://api.enphaseenergy.com/api/v4/systems/12345/summary").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "system_id": 12345,
+                "current_power": 4210,
+                "energy_today": 18500,
+                "last_report_at": 1721394000,
+            },
+        )
+    )
+
+    reading = await client.get_current_power()
+
+    assert reading == CurrentProduction(
+        watts=4210.0,
+        reported_at=datetime(2024, 7, 19, 13, 0, tzinfo=UTC),
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_get_panel_data_sums_intervals_per_microinverter(client, panels_payload):
     """AC1: one typed record per panel, with the day's intervals summed."""
     route = respx.get(PANELS_URL).mock(
@@ -133,6 +158,17 @@ async def test_get_panel_data_sums_intervals_per_microinverter(client, panels_pa
     query = parse_qs(urlparse(str(route.calls.last.request.url)).query)
     assert query["granularity"] == ["day"]
     assert query["start_date"] == ["2024-04-28"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_current_power_returns_none_when_the_summary_is_bare(client):
+    """A system that has never reported has no reading to carry."""
+    respx.get("https://api.enphaseenergy.com/api/v4/systems/12345/summary").mock(
+        return_value=httpx.Response(200, json={"system_id": 12345})
+    )
+
+    assert await client.get_current_power() is None
 
 
 @respx.mock
@@ -162,6 +198,18 @@ async def test_get_panel_data_walks_every_page(client):
         for call in route.calls
     ]
     assert pages == ["1", "2"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_current_power_raises_after_max_retries(client):
+    """AC3: the caller decides what a rate-limited reading means, not the client."""
+    respx.get("https://api.enphaseenergy.com/api/v4/systems/12345/summary").mock(
+        return_value=httpx.Response(429, json={"message": "rate limit"})
+    )
+
+    with pytest.raises(RuntimeError, match="rate limit"):
+        await client.get_current_power()
 
 
 @respx.mock

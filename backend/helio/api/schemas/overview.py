@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -31,7 +31,11 @@ class OverviewResponse(BaseModel):
 
     today: date
     today_kwh: float
+    # The latest output Enphase reported, and when the envoy measured it. Both
+    # are null when the reading cannot be fetched, which must not cost the
+    # caller the stored history in the rest of this payload.
     current_power_w: float | None
+    current_power_at: datetime | None
     day_comparison: ComparisonPair
     day_vs_last_month: ComparisonPair
     month_comparison: ComparisonPair
