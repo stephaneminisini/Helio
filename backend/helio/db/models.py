@@ -55,7 +55,7 @@ class System(Base):
         energy_rate_per_kwh: Electricity rate used to price lost production
             (default 0.15).
         energy_rate_currency: ISO 4217 code for energy_rate_per_kwh (default "USD").
-        irradiance_source: Source identifier for irradiance data (default "nrel").
+        irradiance_source: Source identifier for irradiance data (default "nasa").
         enphase_access_token: Fernet-encrypted Enphase OAuth access token.
         enphase_refresh_token: Fernet-encrypted Enphase OAuth refresh token.
         token_updated_at: Timestamp of the last successful token rotation.
@@ -65,6 +65,7 @@ class System(Base):
         daily_summaries: Related daily summary records.
         monthly_summaries: Related monthly summary records.
         irradiance_records: Related irradiance records.
+        panel_readings: Related per-panel daily reading records.
         poll_logs: Related poll log records.
     """
 
@@ -100,7 +101,7 @@ class System(Base):
         String(3), default=DEFAULT_ENERGY_RATE_CURRENCY, server_default="USD"
     )
     irradiance_source: Mapped[str] = mapped_column(
-        String(32), default="nrel", server_default="nrel"
+        String(32), default="nasa", server_default="nasa"
     )
     # Ciphertext, not plaintext: written only via helio.ingestion.tokens so the
     # Fernet encryption cannot be bypassed. Text because Fernet output grows
@@ -125,6 +126,7 @@ class System(Base):
     irradiance_records: Mapped[list["Irradiance"]] = relationship(
         back_populates="system"
     )
+    panel_readings: Mapped[list["PanelReading"]] = relationship(back_populates="system")
     poll_logs: Mapped[list["PollLog"]] = relationship(back_populates="system")
 
 
@@ -267,7 +269,7 @@ class Irradiance(Base):
         ghi_kwh_m2: Global Horizontal Irradiance in kWh/m2.
         dni_kwh_m2: Direct Normal Irradiance in kWh/m2.
         poa_kwh_m2: Plane of Array Irradiance in kWh/m2.
-        source: Data source identifier (e.g. "nrel", "pvgis").
+        source: Data source identifier that supplied this row (e.g. "nasa").
         created_at: Timestamp when the record was created.
         system: Related System instance.
     """
@@ -287,6 +289,45 @@ class Irradiance(Base):
     )
 
     system: Mapped["System"] = relationship(back_populates="irradiance_records")
+
+
+class PanelReading(Base):
+    """Energy produced by a single microinverter on a single day.
+
+    Enphase reports device-level telemetry as 5-minute intervals; the poller
+    sums them into one row per panel per day so the per-panel heatmap can read a
+    date range without scanning raw telemetry.
+
+    Attributes:
+        id: Primary key.
+        system_id: Foreign key referencing the parent system.
+        panel_serial: Microinverter serial number as reported by Enphase.
+        day: The calendar date this reading covers, in the system's timezone.
+        energy_wh: Energy produced during the day in watt-hours.
+        created_at: Timestamp when the record was created.
+        updated_at: Timestamp when the record was last updated.
+        system: Related System instance.
+    """
+
+    __tablename__ = "panel_readings"
+    __table_args__ = (
+        UniqueConstraint("system_id", "panel_serial", "day"),
+        Index("idx_panel_readings_system_day", "system_id", "day"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    system_id: Mapped[int] = mapped_column(ForeignKey("systems.id"), nullable=False)
+    panel_serial: Mapped[str] = mapped_column(String(64), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    energy_wh: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    system: Mapped["System"] = relationship(back_populates="panel_readings")
 
 
 class PollLog(Base):
