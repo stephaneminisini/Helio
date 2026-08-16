@@ -24,6 +24,14 @@ class Base(DeclarativeBase):
     pass
 
 
+# Named here rather than inlined so the column default, migration 006 and the
+# no-system branch of GET /api/efficiency cannot drift apart. The warranty rate
+# is a percent per year, matching System.degradation_rate's units.
+DEFAULT_WARRANTY_DEGRADATION_RATE = Decimal("0.7")
+DEFAULT_ENERGY_RATE_PER_KWH = Decimal("0.15")
+DEFAULT_ENERGY_RATE_CURRENCY = "USD"
+
+
 class System(Base):
     """Represents a solar energy system registered in the platform.
 
@@ -41,7 +49,12 @@ class System(Base):
         install_date: Date the system was installed.
         tilt_angle_deg: Tilt angle of the panels in degrees.
         azimuth_deg: Azimuth orientation of the panels in degrees.
-        degradation_rate: Annual degradation rate (default 0.5).
+        degradation_rate: Annual degradation rate in percent per year (default 0.5).
+        warranty_degradation_rate: Manufacturer warranty threshold in percent per
+            year; an annual drop above this is flagged (default 0.7).
+        energy_rate_per_kwh: Electricity rate used to price lost production
+            (default 0.15).
+        energy_rate_currency: ISO 4217 code for energy_rate_per_kwh (default "USD").
         irradiance_source: Source identifier for irradiance data (default "nasa").
         enphase_access_token: Fernet-encrypted Enphase OAuth access token.
         enphase_refresh_token: Fernet-encrypted Enphase OAuth refresh token.
@@ -74,6 +87,17 @@ class System(Base):
     azimuth_deg: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     degradation_rate: Mapped[Decimal] = mapped_column(
         Numeric(5, 3), default=Decimal("0.5"), server_default="0.500"
+    )
+    warranty_degradation_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3),
+        default=DEFAULT_WARRANTY_DEGRADATION_RATE,
+        server_default="0.700",
+    )
+    energy_rate_per_kwh: Mapped[Decimal] = mapped_column(
+        Numeric(8, 4), default=DEFAULT_ENERGY_RATE_PER_KWH, server_default="0.1500"
+    )
+    energy_rate_currency: Mapped[str] = mapped_column(
+        String(3), default=DEFAULT_ENERGY_RATE_CURRENCY, server_default="USD"
     )
     irradiance_source: Mapped[str] = mapped_column(
         String(32), default="nasa", server_default="nasa"

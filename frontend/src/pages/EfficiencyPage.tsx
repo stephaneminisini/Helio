@@ -35,7 +35,9 @@ export function EfficiencyPage() {
         <StatCard
           label="Lost Production"
           value={`${degradation.lost_kwh.toFixed(0)} kWh`}
-          sub={`$${degradation.lost_dollars.toFixed(0)} estimated`}
+          // The rate is shown with the figure: the estimate is not
+          // interpretable without knowing what it was priced at.
+          sub={`${degradation.lost_dollars.toFixed(0)} ${degradation.energy_rate_currency} at ${degradation.energy_rate_per_kwh}/kWh`}
           highlight={degradation.exceeds_warranty}
         />
         <StatCard

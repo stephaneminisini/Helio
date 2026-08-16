@@ -34,6 +34,8 @@ export interface EfficiencyData {
     lost_dollars: number;
     warranty_threshold: number;
     exceeds_warranty: boolean;
+    energy_rate_per_kwh: number;
+    energy_rate_currency: string;
   };
 }
 
@@ -50,6 +52,9 @@ export interface SystemSettings {
   tilt_angle_deg: string | null;
   azimuth_deg: string | null;
   degradation_rate: string;
+  warranty_degradation_rate: string;
+  energy_rate_per_kwh: string;
+  energy_rate_currency: string;
   irradiance_source: string;
   enphase_connected: boolean;
 }
