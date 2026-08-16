@@ -58,7 +58,12 @@ class SettingsCreate(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    """Request body for PUT /api/settings. All fields optional for partial updates."""
+    """Request body for PUT /api/settings. All fields optional for partial updates.
+
+    `irradiance_source` is constrained to the supported sources because ingestion
+    selects its client from the stored value: an unrecognised source would be
+    accepted here and then skip irradiance on every subsequent poll.
+    """
 
     name: str | None = None
     location: str | None = None
@@ -71,4 +76,4 @@ class SettingsUpdate(BaseModel):
     tilt_angle_deg: Decimal | None = None
     azimuth_deg: Decimal | None = None
     degradation_rate: Decimal | None = None
-    irradiance_source: str | None = None
+    irradiance_source: IrradianceSource | None = None
