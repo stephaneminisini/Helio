@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { TooltipProps } from "recharts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EfficiencyData, MonthlyPRPoint } from "../api/client";
+import {
+  EfficiencyData,
+  MonthlyPRPoint,
+  ProjectionSummary,
+} from "../api/client";
 import { response, stubFetch } from "../test/fetchStub";
 import {
   anomalyDot,
@@ -15,10 +19,19 @@ const EFFICIENCY_PATH = "/api/efficiency";
 
 function efficiency(
   overrides: Partial<EfficiencyData["degradation"]> = {},
-  pr_history: MonthlyPRPoint[] = []
+  pr_history: MonthlyPRPoint[] = [],
+  projection: Partial<ProjectionSummary> = {}
 ): EfficiencyData {
   return {
     pr_history,
+    projection: {
+      months_of_history: 0,
+      annual_rate: null,
+      low_confidence: true,
+      warranty_breach_year: null,
+      years: [],
+      ...projection,
+    },
     degradation: {
       annual_rates: {},
       lost_kwh: 120,
@@ -51,6 +64,7 @@ function point(overrides: Partial<PRChartPoint> = {}): PRChartPoint {
     month: "2024-06",
     pr: 76,
     expected: 98,
+    projected: null,
     isAnomaly: false,
     reason: null,
     ...overrides,
@@ -146,6 +160,78 @@ describe("EfficiencyPage", () => {
     expect(await screen.findByText("120 kWh")).toBeInTheDocument();
     expect(screen.queryByText("Anomalies")).not.toBeInTheDocument();
   });
+
+  it("reports the projected trend and the history behind it", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({}, [month()], {
+          months_of_history: 36,
+          annual_rate: 0.008,
+          low_confidence: false,
+          years: [{ year: 2025, projected_pr: 0.74 }],
+        })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText("Projected Trend")).toBeInTheDocument();
+    expect(screen.getByText("0.80%/yr")).toBeInTheDocument();
+    expect(screen.getByText("From 36 months of history")).toBeInTheDocument();
+  });
+
+  it("warns when the projection rests on less than a year", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({}, [month()], {
+          months_of_history: 6,
+          annual_rate: 0.008,
+          low_confidence: true,
+          years: [{ year: 2025, projected_pr: 0.74 }],
+        })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(
+      await screen.findByText("Low confidence: 6 months of history")
+    ).toBeInTheDocument();
+  });
+
+  it("calls out the year the projection breaches the warranty", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({}, [month()], {
+          months_of_history: 24,
+          annual_rate: 0.012,
+          low_confidence: false,
+          warranty_breach_year: 2027,
+          years: [{ year: 2027, projected_pr: 0.7 }],
+        })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText("Warranty Breach")).toBeInTheDocument();
+    expect(screen.getByText("2027")).toBeInTheDocument();
+  });
+
+  it("shows no projection card without enough history to project", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(200, efficiency({}, [month()])),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText("120 kWh")).toBeInTheDocument();
+    expect(screen.queryByText("Projected Trend")).not.toBeInTheDocument();
+    expect(screen.queryByText("Warranty Breach")).not.toBeInTheDocument();
+  });
 });
 
 describe("toChartData", () => {
@@ -158,9 +244,46 @@ describe("toChartData", () => {
       month: "2024-06",
       pr: 76,
       expected: 98,
+      projected: null,
       isAnomaly: true,
       reason: "PR 76.0% is 22.0% below",
     });
+  });
+
+  it("appends the projected years after the measured months", () => {
+    const plotted = toChartData(
+      [month({ month: "2024-06-01" })],
+      [
+        { year: 2025, projected_pr: 0.74 },
+        { year: 2026, projected_pr: 0.73 },
+      ]
+    );
+
+    expect(plotted.map((p) => p.month)).toEqual(["2024-06", "2025", "2026"]);
+    expect(plotted[1]).toEqual({
+      month: "2025",
+      pr: null,
+      expected: null,
+      projected: 74,
+      isAnomaly: false,
+      reason: null,
+    });
+  });
+
+  it("bridges the forecast to the last measured month", () => {
+    const plotted = toChartData(
+      [month({ month: "2024-05-01" }), month({ month: "2024-06-01" })],
+      [{ year: 2025, projected_pr: 0.74 }]
+    );
+
+    expect(plotted[0].projected).toBeNull();
+    expect(plotted[1].projected).toBe(plotted[1].pr);
+  });
+
+  it("adds no bridge point when there is nothing to project", () => {
+    const plotted = toChartData([month(), month()]);
+
+    expect(plotted.every((p) => p.projected === null)).toBe(true);
   });
 
   it("leaves a month without a performance ratio unplotted", () => {
@@ -220,6 +343,25 @@ describe("PRTooltip", () => {
 
     expect(screen.getByText("Expected PR 98%")).toBeInTheDocument();
     expect(screen.queryByText(/below expected/)).not.toBeInTheDocument();
+  });
+
+  it("labels a projected year as projected rather than missing", () => {
+    render(
+      <PRTooltip
+        active
+        payload={payloadFor(
+          point({
+            month: "2025",
+            pr: null,
+            expected: null,
+            projected: 74,
+          })
+        )}
+      />
+    );
+
+    expect(screen.getByText("Projected PR 74%")).toBeInTheDocument();
+    expect(screen.queryByText(/Actual PR/)).not.toBeInTheDocument();
   });
 
   it("renders nothing while the chart is not hovered", () => {

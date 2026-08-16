@@ -310,7 +310,10 @@ ORDER BY yr;
 - `GET /api/overview` — today's stats + comparisons
 - `GET /api/efficiency` — PR history + degradation metrics; each month carries
   `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
-  marks with a dot and repeats in the tooltip
+  marks with a dot and repeats in the tooltip. The `projection` block extends the
+  fitted PR trend five years past the last measured year, carries its own
+  `low_confidence` flag below twelve months of history, and names the
+  `warranty_breach_year` when the trend falls below the warranted curve
 - `GET /api/panels` — panel heatmap data
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
 - `GET/POST/PUT /api/settings` — system configuration (POST for fresh install)
