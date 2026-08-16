@@ -227,10 +227,9 @@ export function SetupPage() {
           <select
             id="irradiance_source"
             name="irradiance_source"
-            defaultValue={data?.irradiance_source ?? "nrel"}
+            defaultValue={data?.irradiance_source ?? "nasa"}
             className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
           >
-            <option value="nrel">NREL</option>
             <option value="nasa">NASA POWER</option>
             <option value="manual">Manual (disabled)</option>
           </select>
