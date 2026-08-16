@@ -6,7 +6,8 @@ import pytest
 from loguru import logger
 
 from helio import cli
-from helio.cli import EXIT_NO_SYSTEM, POLL_STATUS_LIMIT, main
+from helio.cli import EXIT_NO_SYSTEM, EXIT_REAL_DATA, POLL_STATUS_LIMIT, main
+from helio.db.seed_mock import RealDataError
 
 COMMANDS = ["backfill", "poll-now", "poll-status", "rebuild-summaries", "seed-mock"]
 
@@ -106,6 +107,16 @@ def test_seed_mock_passes_the_requested_year_count(session, monkeypatch, capsys)
     assert main(["seed-mock", "--years", "1"]) == 0
     worker.assert_awaited_once_with(session, system, years=1)
     assert "Seeded 96 intervals and 1 irradiance days." in capsys.readouterr().out
+
+
+def test_seed_mock_explains_a_refusal_instead_of_raising(session, monkeypatch, logged):
+    """AC4: the contributor needs to know why the seed stopped, not see a stack."""
+    _returns_system(session, MagicMock(id=1))
+    refusal = RealDataError("holds 4321 production intervals")
+    monkeypatch.setattr(cli, "seed_mock", AsyncMock(side_effect=refusal))
+
+    assert main(["seed-mock"]) == EXIT_REAL_DATA
+    assert "4321 production intervals" in "".join(logged)
 
 
 def test_poll_status_prints_the_recent_runs(session, monkeypatch, capsys):
