@@ -78,3 +78,31 @@ def month_to_date(anchor: date) -> tuple[date, date]:
         A (start, end) pair, inclusive of both ends.
     """
     return anchor.replace(day=1), anchor
+
+
+def whole_month(anchor: date) -> tuple[date, date]:
+    """Return the window covering the whole of the anchor's month.
+
+    Args:
+        anchor: Any day inside the month.
+
+    Returns:
+        A (first, last) pair, inclusive of both ends, with the last day taken
+        from the calendar rather than assumed to be the 30th or 31st.
+    """
+    return (
+        anchor.replace(day=1),
+        anchor.replace(day=monthrange(anchor.year, anchor.month)[1]),
+    )
+
+
+def whole_year(year: int) -> tuple[date, date]:
+    """Return the window covering the whole of a calendar year.
+
+    Args:
+        year: The year to cover.
+
+    Returns:
+        A (1 January, 31 December) pair, inclusive of both ends.
+    """
+    return date(year, 1, 1), date(year, 12, 31)

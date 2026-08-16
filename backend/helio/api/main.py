@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from helio.api.routes.auth import router as auth_router
+from helio.api.routes.compare import router as compare_router
 from helio.api.routes.efficiency import router as efficiency_router
 from helio.api.routes.overview import router as overview_router
 from helio.api.routes.panels import router as panels_router
@@ -67,6 +68,7 @@ app.add_middleware(
 )
 
 app.include_router(overview_router, prefix="/api")
+app.include_router(compare_router, prefix="/api")
 app.include_router(efficiency_router, prefix="/api")
 app.include_router(panels_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
