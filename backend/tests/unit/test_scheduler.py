@@ -6,7 +6,20 @@ import pytest
 from loguru import logger
 
 from helio.ingestion import scheduler
+from helio.ingestion.irradiance_client import (
+    IrradianceUnavailableError,
+    NASAClient,
+)
 from helio.ingestion.tokens import TokenError
+
+
+@pytest.fixture
+def located_system(poll_env):
+    """The poll_env system with coordinates set so irradiance is attempted."""
+    system, steps = poll_env
+    system.latitude = Decimal("45.5231")
+    system.longitude = Decimal("-122.6765")
+    return system, steps
 
 
 @pytest.fixture
@@ -30,6 +43,7 @@ def poll_env(monkeypatch):
         longitude=None,
         tilt_angle_deg=Decimal("30"),
         azimuth_deg=Decimal("180"),
+        irradiance_source="nasa",
     )
     session = AsyncMock()
     session.execute = AsyncMock(
@@ -118,3 +132,68 @@ async def test_daily_poll_aborts_on_token_error_without_crashing(
     assert "skipping daily poll" in combined
     for mock in steps.values():
         mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_daily_poll_prefers_the_stored_source_over_the_env_var(
+    located_system, monkeypatch
+):
+    """AC1: the DB value wins, so the Setup tab is not silently ignored."""
+    system, steps = located_system
+    system.irradiance_source = "nasa"
+    monkeypatch.setattr(scheduler.settings, "irradiance_source", "manual")
+
+    await scheduler.run_daily_poll()
+
+    client, recorded_source = (
+        steps["poll_irradiance"].await_args.args[1],
+        steps["poll_irradiance"].await_args.args[-1],
+    )
+    assert isinstance(client, NASAClient)
+    assert recorded_source == "nasa"
+
+
+@pytest.mark.asyncio
+async def test_daily_poll_leaves_an_unavailable_day_as_a_gap(located_system, logged):
+    """AC3: a day the source cannot supply is logged and left for backfill."""
+    _, steps = located_system
+    steps["poll_irradiance"].side_effect = IrradianceUnavailableError(
+        "NASA POWER reported ALLSKY_SFC_SW_DWN as unavailable (-999.0) for 20240428"
+    )
+
+    await scheduler.run_daily_poll()
+
+    steps["poll_intervals"].assert_awaited_once()
+    steps["build_daily_summary"].assert_awaited_once()
+    combined = "".join(logged)
+    assert "left for backfill" in combined
+    assert "20240428" in combined
+
+
+@pytest.mark.asyncio
+async def test_daily_poll_skips_irradiance_for_a_manual_source(located_system, logged):
+    """A manual source fetches nothing by design, so it is not a failure."""
+    system, steps = located_system
+    system.irradiance_source = "manual"
+
+    await scheduler.run_daily_poll()
+
+    steps["poll_irradiance"].assert_not_awaited()
+    assert "completed with failures" not in "".join(logged)
+
+
+@pytest.mark.asyncio
+async def test_daily_poll_skips_irradiance_for_an_unsupported_source(
+    located_system, logged
+):
+    """A source no client can serve is reported rather than silently ignored."""
+    system, steps = located_system
+    system.irradiance_source = "sunshine-vibes"
+
+    await scheduler.run_daily_poll()
+
+    steps["poll_irradiance"].assert_not_awaited()
+    steps["poll_intervals"].assert_awaited_once()
+    combined = "".join(logged)
+    assert "sunshine-vibes" in combined
+    assert "not supported" in combined

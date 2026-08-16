@@ -2,7 +2,7 @@ from cryptography.fernet import Fernet
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-IRRADIANCE_SOURCES = ("nrel", "nasa", "manual")
+IRRADIANCE_SOURCES = ("nasa", "manual")
 ASYNC_DRIVER_PREFIX = "postgresql+asyncpg://"
 FERNET_KEY_HINT = (
     "Generate one with `make generate-fernet-key` and set FERNET_KEY in .env"
@@ -31,8 +31,7 @@ class Settings(BaseSettings):
     # Where the OAuth callback sends the browser once the exchange is done.
     frontend_base_url: str = "http://localhost:3000"
     fernet_key: str = ""
-    nrel_api_key: str = ""
-    irradiance_source: str = "nrel"
+    irradiance_source: str = "nasa"
     poll_hour: int = 4
     poll_minute: int = 0
     tz: str = "America/Montreal"
@@ -118,30 +117,22 @@ def _fernet_key_errors(key: str) -> list[str]:
     return []
 
 
-def _irradiance_errors(source: str, nrel_api_key: str) -> list[str]:
-    """Validate the irradiance source and any key it depends on.
+def _irradiance_errors(source: str) -> list[str]:
+    """Validate the irradiance source.
 
-    The source is checked against the known values first: an unrecognised value
-    such as 'NREL' would otherwise silently fall through to the NASA client and
-    skip the NREL_API_KEY requirement.
+    An unrecognised value such as 'NASA' would otherwise be stored on new
+    systems and then skip the irradiance step on every poll.
 
     Args:
         source: The configured IRRADIANCE_SOURCE value.
-        nrel_api_key: The configured NREL_API_KEY value.
 
     Returns:
-        A list of human-readable problems; empty when the pair is usable.
+        A list of human-readable problems; empty when the value is usable.
     """
     if source not in IRRADIANCE_SOURCES:
         return [
             f"IRRADIANCE_SOURCE must be one of {', '.join(IRRADIANCE_SOURCES)} "
             f"(got '{source}')"
-        ]
-    if source == "nrel" and not nrel_api_key:
-        return [
-            "IRRADIANCE_SOURCE=nrel requires NREL_API_KEY. Get a free key at "
-            "https://developer.nrel.gov/signup/, or set IRRADIANCE_SOURCE=nasa "
-            "to use NASA POWER instead (no key needed)"
         ]
     return []
 
@@ -160,7 +151,7 @@ def validate_startup_config(cfg: Settings) -> None:
     errors = [
         *_database_url_errors(cfg.database_url),
         *_fernet_key_errors(cfg.fernet_key),
-        *_irradiance_errors(cfg.irradiance_source, cfg.nrel_api_key),
+        *_irradiance_errors(cfg.irradiance_source),
     ]
     if errors:
         raise ConfigError(

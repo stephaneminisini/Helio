@@ -12,9 +12,12 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helio.analytics.summarizer import build_daily_summary
-from helio.core.config import settings
 from helio.db.models import System
-from helio.ingestion.irradiance_client import NASAClient, NRELClient
+from helio.ingestion.irradiance_client import (
+    IrradianceSourceError,
+    IrradianceUnavailableError,
+    build_irradiance_client,
+)
 from helio.ingestion.poller import (
     detect_gaps,
     irradiance_location,
@@ -44,14 +47,13 @@ async def backfill(session: AsyncSession, system: System) -> None:
         logger.error("Unexpected error during token refresh: {}", exc)
         return
 
-    irr_client: NRELClient | NASAClient
-    if settings.irradiance_source == "nrel":
-        irr_client = NRELClient(settings.nrel_api_key)
-    else:
-        irr_client = NASAClient()
-
-    # Checked once, not per day, so an unconfigured site logs one warning
+    # Both resolved once, not per day, so an unconfigured site logs one warning
     # rather than one per backfilled day.
+    try:
+        irr_client = build_irradiance_client(system.irradiance_source)
+    except IrradianceSourceError as exc:
+        logger.error("Irradiance backfill skipped: {}", exc)
+        irr_client = None
     location = irradiance_location(system)
 
     start = system.install_date
@@ -75,7 +77,7 @@ async def backfill(session: AsyncSession, system: System) -> None:
         except Exception as exc:
             logger.error("Unexpected interval error for {}: {}", day, exc)
 
-        if location is not None:
+        if location is not None and irr_client is not None:
             try:
                 await poll_irradiance(
                     session,
@@ -85,8 +87,10 @@ async def backfill(session: AsyncSession, system: System) -> None:
                     float(system.tilt_angle_deg or 30),
                     float(system.azimuth_deg or 180),
                     day,
-                    settings.irradiance_source,
+                    system.irradiance_source,
                 )
+            except IrradianceUnavailableError as exc:
+                logger.warning("No irradiance available for {}: {}", day, exc)
             except httpx.HTTPStatusError as exc:
                 logger.error("Irradiance backfill failed for {}: {}", day, exc)
             except Exception as exc:
