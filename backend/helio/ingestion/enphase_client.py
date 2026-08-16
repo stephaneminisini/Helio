@@ -67,6 +67,21 @@ class IntervalData:
 
 
 @dataclass
+class CurrentProduction:
+    """The most recent instantaneous output Enphase has on record.
+
+    Attributes:
+        watts: Reported output in watts.
+        reported_at: UTC datetime the envoy took the reading. Carried alongside
+            the value because envoys report in batches, so a figure without its
+            timestamp cannot be told apart from a stale one.
+    """
+
+    watts: float
+    reported_at: datetime
+
+
+@dataclass
 class PanelEnergy:
     """Energy produced by one microinverter over a single day.
 
@@ -208,6 +223,32 @@ class EnphaseClient:
                 )
             )
         return result
+
+    async def get_current_power(self) -> CurrentProduction | None:
+        """Fetch the system's latest reported output.
+
+        Returns:
+            The reading and the time it was taken, or None when the summary
+            omits either field, which is what a system that has never reported
+            looks like.
+
+        Raises:
+            RuntimeError: After MAX_RETRIES rate-limit responses.
+            httpx.HTTPStatusError: On non-retryable API errors.
+        """
+        url = f"{BASE_URL}/systems/{self._system_id}/summary"
+        data = await self._request("GET", url)
+        watts = data.get("current_power")
+        reported_at = data.get("last_report_at")
+        if watts is None or reported_at is None:
+            logger.warning(
+                "Enphase summary has no current power reading: {}", sorted(data)
+            )
+            return None
+        return CurrentProduction(
+            watts=float(watts),
+            reported_at=datetime.fromtimestamp(reported_at, tz=UTC),
+        )
 
     async def get_panel_data(self, day: date) -> list[PanelEnergy]:
         """Fetch per-microinverter production for a single day.
