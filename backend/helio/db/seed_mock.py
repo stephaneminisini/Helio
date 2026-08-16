@@ -12,6 +12,7 @@ import random
 from datetime import UTC, date, datetime, timedelta
 
 from loguru import logger
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,20 @@ SUMMER_SOLSTICE_DOY = 172
 SOLAR_NOON_HOUR = 13.0
 DEFAULT_SIZE_KW = 10.0
 DEFAULT_LATITUDE = 45.0
+REAL_DATA_MESSAGE = (
+    "This database holds {} production intervals the mock seeder did not write, so "
+    "seeding would overwrite real measurements. Point at an empty development "
+    "database instead."
+)
+
+
+class RealDataError(RuntimeError):
+    """Raised when the target database already holds real production data.
+
+    Seeding overwrites intervals day by day, and measurements older than the
+    Enphase retention window cannot be fetched again, so a live install must be
+    refused rather than overwritten.
+    """
 
 
 def _seasonal_factor(day: date, latitude: float) -> float:
@@ -150,6 +165,35 @@ async def _upsert(
     await session.commit()
 
 
+async def _unseeded_interval_count(session: AsyncSession, system_id: int) -> int:
+    """Count production intervals on days this seeder never wrote.
+
+    Every day the seeder covers also gets an irradiance row tagged SOURCE, so an
+    interval on a day without one came from real ingestion. That makes reseeding
+    an already-mocked database free, while a live install is recognised.
+
+    Args:
+        session: Active async database session.
+        system_id: System whose intervals to inspect.
+
+    Returns:
+        Number of energy_intervals rows on days carrying no mock irradiance.
+    """
+    seeded_days = select(Irradiance.day).where(
+        Irradiance.system_id == system_id,
+        Irradiance.source == SOURCE,
+    )
+    stmt = (
+        select(func.count())
+        .select_from(EnergyInterval)
+        .where(
+            EnergyInterval.system_id == system_id,
+            func.date(EnergyInterval.interval_start).not_in(seeded_days),
+        )
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
 async def seed_mock(
     session: AsyncSession,
     system: System,
@@ -170,7 +214,15 @@ async def seed_mock(
 
     Returns:
         Tuple of (interval_rows, irradiance_rows) written.
+
+    Raises:
+        RealDataError: If the system already has production intervals this
+            seeder did not write, which is what a live install looks like.
     """
+    unseeded = await _unseeded_interval_count(session, system.id)
+    if unseeded:
+        raise RealDataError(REAL_DATA_MESSAGE.format(unseeded))
+
     end = date.today() - timedelta(days=1)
     start = end - timedelta(days=round(years * 365.25) - 1)
     rng = random.Random(seed)

@@ -18,13 +18,14 @@ from sqlalchemy import select
 
 from helio.analytics.summarizer import rebuild_all_summaries
 from helio.db.models import System
-from helio.db.seed_mock import DEFAULT_YEARS, seed_mock
+from helio.db.seed_mock import DEFAULT_YEARS, RealDataError, seed_mock
 from helio.db.session import AsyncSessionLocal
 from helio.ingestion.backfill import backfill
 from helio.ingestion.poller import recent_polls
 from helio.ingestion.scheduler import run_daily_poll
 
 EXIT_NO_SYSTEM = 2
+EXIT_REAL_DATA = 3
 POLL_STATUS_LIMIT = 10
 NO_SYSTEM_MESSAGE = (
     "No system is configured yet. Open the dashboard at http://localhost:3000, "
@@ -143,7 +144,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: Argument list, defaulting to sys.argv[1:].
 
     Returns:
-        Process exit code: 0 on success, EXIT_NO_SYSTEM if no system exists.
+        Process exit code: 0 on success, EXIT_NO_SYSTEM if no system exists,
+        EXIT_REAL_DATA if seeding would overwrite real production data.
     """
     args = _build_parser().parse_args(argv)
     try:
@@ -151,6 +153,9 @@ def main(argv: list[str] | None = None) -> int:
     except SystemNotConfiguredError as exc:
         logger.error("{}", exc)
         return EXIT_NO_SYSTEM
+    except RealDataError as exc:
+        logger.error("{}", exc)
+        return EXIT_REAL_DATA
     return 0
 
 
