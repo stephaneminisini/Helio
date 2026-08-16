@@ -33,7 +33,7 @@
 └─────────────────────────────────────────────────────────────────┘
          │                          │
          ▼                          ▼
-  Enphase API v4            NREL / NASA POWER API
+  Enphase API v4            NASA POWER API
 ```
 
 ---
@@ -77,7 +77,10 @@ CREATE TABLE systems (
     tilt_angle_deg      NUMERIC(5, 2),
     azimuth_deg         NUMERIC(6, 2),
     degradation_rate    NUMERIC(5, 3) DEFAULT 0.5,  -- %/yr
-    irradiance_source   VARCHAR(32) DEFAULT 'nrel',
+    warranty_degradation_rate NUMERIC(5, 3) NOT NULL DEFAULT 0.7,  -- %/yr
+    energy_rate_per_kwh NUMERIC(8, 4) NOT NULL DEFAULT 0.15,
+    energy_rate_currency VARCHAR(3) NOT NULL DEFAULT 'USD',  -- ISO 4217
+    irradiance_source   VARCHAR(32) DEFAULT 'nasa',
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
@@ -130,7 +133,7 @@ CREATE INDEX idx_daily_system_day
 
 ### 3.4 `irradiance`
 
-Daily solar resource data from NREL or NASA POWER.
+Daily solar resource data from NASA POWER.
 
 ```sql
 CREATE TABLE irradiance (
@@ -140,7 +143,7 @@ CREATE TABLE irradiance (
     ghi_kwh_m2          NUMERIC(8, 4),   -- Global Horizontal Irradiance
     dni_kwh_m2          NUMERIC(8, 4),   -- Direct Normal Irradiance
     poa_kwh_m2          NUMERIC(8, 4),   -- Plane of Array (computed)
-    source              VARCHAR(32),     -- 'nrel' | 'nasa'
+    source              VARCHAR(32),     -- 'nasa' | 'manual'
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (system_id, day, source)
 );
@@ -188,6 +191,30 @@ CREATE TABLE poll_log (
     date_range_start    DATE,
     date_range_end      DATE
 );
+```
+
+### 3.7 `panel_readings`
+
+Daily production per microinverter, for the per-panel heatmap (BR-15, BR-16).
+Enphase reports device-level telemetry as 5-minute intervals; the poller sums
+them into one row per panel per day, which is the grain the heatmap reads.
+`energy_wh` is nullable so a panel that reported no intervals is still recorded
+as present-but-silent rather than omitted from the day.
+
+```sql
+CREATE TABLE panel_readings (
+    id                  BIGSERIAL PRIMARY KEY,
+    system_id           INTEGER REFERENCES systems(id),
+    panel_serial        VARCHAR(64) NOT NULL,  -- microinverter serial
+    day                 DATE NOT NULL,
+    energy_wh           NUMERIC(10, 3),
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (system_id, panel_serial, day)     -- makes a re-poll idempotent
+);
+
+CREATE INDEX idx_panel_readings_system_day
+    ON panel_readings (system_id, day);
 ```
 
 ---
@@ -284,16 +311,18 @@ ORDER BY yr;
 
 ### 5.4 `helio/ingestion/enphase_client.py`
 - OAuth 2.0 token management (access + refresh, 30-day expiry)
-- Methods: `get_intervals()`, `get_panels()`, `get_system_info()`
+- Methods: `get_intervals()`, `get_panel_data()`, `get_system_info()`
 - Exponential backoff on rate limit (429) responses
 
 ### 5.5 `helio/ingestion/irradiance_client.py`
-- NREL PVDAQ and NASA POWER adapters behind common interface
+- NASA POWER adapter behind a common interface
 - Plane-of-Array (POA) irradiance calculation from GHI + tilt + azimuth
 
 ### 5.6 `helio/ingestion/poller.py`
 - APScheduler job definitions
 - `poll_intervals()` — daily at 04:00 local
+- `poll_panels()` — daily, immediately after the intervals step. Skipped with a
+  warning when the Enphase plan does not expose device-level telemetry
 - `poll_irradiance()` — daily at 04:30 local
 - `rebuild_summaries()` — daily at 05:00 local
 - Gap detection: queries `poll_log` to identify missed dates and backfills
@@ -303,16 +332,30 @@ ORDER BY yr;
 - `build_monthly_summary(system_id, month)` — calculates PR, expected PR, anomaly flag
 - `calculate_degradation(system_id)` — returns annual rate vs. warranty threshold
 
-### 5.8 `helio/api/routes/`
+### 5.8 `helio/analytics/anomaly.py`
+- `flag_underperforming_panels(system_id, start, end)` — compares each panel to
+  its own fleet over a window and flags anything more than 2 population standard
+  deviations below the mean (BR-16). Panels are ranked against each other, not
+  against a nameplate rating, so weather and season cancel out. A fleet under 3
+  panels is reported without flags rather than judged on a degenerate spread.
+
+### 5.9 `helio/api/routes/`
 - `GET /api/overview` — today's stats + four comparison pairs (day vs last year,
   day vs last month, month vs last month, month vs same month last year) plus
   year to date
-- `GET /api/efficiency` — PR history + degradation metrics
-- `GET /api/panels` — panel heatmap data
+- `GET /api/efficiency` — PR history + degradation metrics; each month carries
+  `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
+  marks with a dot and repeats in the tooltip. The `projection` block extends the
+  fitted PR trend five years past the last measured year, carries its own
+  `low_confidence` flag below twelve months of history, and names the
+  `warranty_breach_year` when the trend falls below the warranted curve
+- `GET /api/panels?days=30` — per-panel production, the fleet average and
+  standard deviation, and the underperforming flag. Answers 200 with
+  `data_available: false` and a reason when there is nothing to show
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
 - `GET/POST/PUT /api/settings` — system configuration (POST for fresh install)
 
-### 5.9 `helio/api/main.py`
+### 5.10 `helio/api/main.py`
 - FastAPI app entrypoint
 - CORS, lifespan (starts scheduler on startup)
 - Static file serving for React build
@@ -347,7 +390,7 @@ ORDER BY yr;
 | Endpoint | Purpose | Frequency |
 |----------|---------|-----------|
 | `GET /api/v4/systems/{id}/telemetry/production_micro` | 15-min intervals | Daily |
-| `GET /api/v4/systems/{id}/devices/micros` | Panel-level data | Daily |
+| `GET /api/v4/systems/{id}/devices/micros/telemetry` | Panel-level data | Daily (one request per 20 panels) |
 | `GET /api/v4/systems/{id}` | System metadata | Once |
 | `POST /oauth/token` | Token refresh | Per poll session |
 
@@ -413,7 +456,6 @@ services:
 | `ENPHASE_CLIENT_SECRET` | Enphase app client secret |
 | `ENPHASE_SYSTEM_ID` | Target system ID |
 | `FERNET_KEY` | Encryption key for token storage |
-| `NREL_API_KEY` | NREL PVDAQ API key |
 | `POLL_SCHEDULE_HOUR` | Hour for daily poll (default: 4) |
 | `TZ` | Timezone for scheduler (e.g. America/Montreal) |
 
@@ -458,7 +500,7 @@ helio-monitor/
 │   └── src/
 │       ├── api/                     # Typed API client
 │       ├── hooks/                   # Data-fetching hooks
-│       └── pages/                   # Overview, Efficiency, Setup
+│       └── pages/                   # Overview, Efficiency, Panels, Setup
 └── docs/
     ├── INSTALL.md                   # Full manual install guide
     ├── CONFIGURATION.md             # Environment variable reference
