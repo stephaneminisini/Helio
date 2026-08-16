@@ -23,7 +23,11 @@ function overview(overrides: Partial<OverviewData> = {}): OverviewData {
     day_vs_last_month: pair(30, 24, 25),
     month_comparison: pair(400, 320, 25),
     month_vs_last_year: pair(400, 500, -20),
-    ytd_comparison: pair(4000, 3800, 5.3),
+    ytd_history: [
+      { year: 2023, production_kwh: 3600, pct_change: 11.1, is_partial: true },
+      { year: 2024, production_kwh: 3800, pct_change: 5.3, is_partial: false },
+      { year: 2025, production_kwh: 4000, pct_change: null, is_partial: false },
+    ],
     best_day_kwh: 45,
     best_day_date: "2025-06-21",
     all_time_kwh: 24000,
@@ -44,7 +48,7 @@ afterEach(() => {
 });
 
 describe("OverviewPage", () => {
-  it("shows all five comparisons with their deltas", async () => {
+  it("shows the four day and month comparisons with their deltas", async () => {
     stubFetch({ [OVERVIEW_PATH]: response(200, overview()) });
 
     render(<OverviewPage />);
@@ -57,7 +61,6 @@ describe("OverviewPage", () => {
       ["Today vs same day last month", "vs 24.0", "+25.0%"],
       ["This month vs last month", "vs 320.0", "+25.0%"],
       ["This month vs same month last year", "vs 500.0", "-20.0%"],
-      ["Year to date vs prior year", "vs 3800.0", "+5.3%"],
     ];
     for (const [label, prior, delta] of cases) {
       const bar = card(label);
@@ -81,6 +84,20 @@ describe("OverviewPage", () => {
     expect(within(bar).getByText("vs -")).toBeInTheDocument();
     expect(within(bar).getByText("-")).toBeInTheDocument();
     expect(within(bar).queryByText("0.0%")).not.toBeInTheDocument();
+  });
+
+  it("shows a year-to-date row for every year the API returned", async () => {
+    stubFetch({ [OVERVIEW_PATH]: response(200, overview()) });
+
+    render(<OverviewPage />);
+
+    expect(
+      await screen.findByText("Year to date vs prior years")
+    ).toBeInTheDocument();
+    const years = screen.getAllByRole("listitem");
+    expect(years).toHaveLength(3);
+    // today is 2025-07-12, so 2025 is the baseline year.
+    expect(within(years[2]).getByText("this year")).toBeInTheDocument();
   });
 
   it("shows an error state when the request fails", async () => {

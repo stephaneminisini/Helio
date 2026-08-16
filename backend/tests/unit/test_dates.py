@@ -2,7 +2,12 @@ from datetime import date
 
 import pytest
 
-from helio.core.dates import month_to_date, same_day_last_month, same_day_last_year
+from helio.core.dates import (
+    month_to_date,
+    same_day_in_year,
+    same_day_last_month,
+    same_day_last_year,
+)
 
 
 @pytest.mark.parametrize(
@@ -32,6 +37,20 @@ def test_same_day_last_year_never_drifts_by_a_day():
 def test_same_day_last_year_falls_back_from_a_leap_day():
     """AC3: 29 February has no counterpart, so it resolves to 28 February."""
     assert same_day_last_year(date(2024, 2, 29)) == date(2023, 2, 28)
+
+
+@pytest.mark.parametrize(
+    ("anchor", "year", "expected"),
+    [
+        (date(2025, 7, 12), 2019, date(2019, 7, 12)),
+        (date(2025, 7, 12), 2025, date(2025, 7, 12)),
+        # A leap day in a common year falls back; in a leap year it survives.
+        (date(2024, 2, 29), 2021, date(2021, 2, 28)),
+        (date(2024, 2, 29), 2020, date(2020, 2, 29)),
+    ],
+)
+def test_same_day_in_year_carries_the_month_and_day(anchor, year, expected):
+    assert same_day_in_year(anchor, year) == expected
 
 
 @pytest.mark.parametrize(

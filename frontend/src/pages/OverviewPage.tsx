@@ -1,5 +1,6 @@
 import { ComparisonBar } from "../components/ComparisonBar";
 import { StatCard } from "../components/StatCard";
+import { YtdHistory } from "../components/YtdHistory";
 import { useOverview } from "../hooks/useOverview";
 
 export function OverviewPage() {
@@ -60,14 +61,10 @@ export function OverviewPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        <ComparisonBar
-          label="Year to date vs prior year"
-          current={data.ytd_comparison.current_kwh}
-          prior={data.ytd_comparison.prior_kwh}
-          pctChange={data.ytd_comparison.pct_change}
-        />
-      </div>
+      <YtdHistory
+        points={data.ytd_history}
+        currentYear={Number(data.today.slice(0, 4))}
+      />
 
       <p className="text-xs text-gray-500">
         Month and year comparisons stop at the same day of the prior period, so a
