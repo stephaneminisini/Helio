@@ -7,8 +7,19 @@ import pandas as pd  # required by pvlib internals
 import pvlib
 from loguru import logger
 
+from helio.core.config import IRRADIANCE_SOURCES
+
 NREL_URL = "https://developer.nrel.gov/api/solar/solar_resource/v1.json"
 NASA_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+MISSING_NREL_KEY_MESSAGE = (
+    "irradiance_source is 'nrel' but NREL_API_KEY is not set. Get a free key at "
+    "https://developer.nrel.gov/signup/, or switch the source to 'nasa' on the "
+    "Setup tab (no key needed)."
+)
+
+
+class IrradianceSourceError(RuntimeError):
+    """Raised when a configured irradiance source cannot supply data."""
 
 
 def compute_poa(
@@ -169,3 +180,37 @@ class NASAClient(IrradianceClient):
         dni = max(0.0, float(props.get("ALLSKY_SFC_SW_DNI", {}).get(date_str, 0) or 0))
         logger.debug("NASA irradiance for {}: ghi={}, dni={}", target_date, ghi, dni)
         return {"ghi": ghi, "dni": dni}
+
+
+def build_irradiance_client(source: str, nrel_api_key: str) -> IrradianceClient | None:
+    """Return the client for a configured irradiance source.
+
+    Callers pass the source stored on the system record rather than the
+    IRRADIANCE_SOURCE environment variable, which only seeds new systems. A
+    source chosen on the Setup tab therefore takes effect on the next poll with
+    no restart.
+
+    Args:
+        source: Source identifier stored on the system record.
+        nrel_api_key: NREL developer key; required only when source is 'nrel'.
+
+    Returns:
+        The matching client, or None when source is 'manual' and irradiance rows
+        are entered by hand so nothing should be fetched.
+
+    Raises:
+        IrradianceSourceError: If source is not a supported value, or is 'nrel'
+            while NREL_API_KEY is unset.
+    """
+    if source not in IRRADIANCE_SOURCES:
+        raise IrradianceSourceError(
+            f"irradiance_source '{source}' is not supported; expected one of "
+            f"{', '.join(IRRADIANCE_SOURCES)}"
+        )
+    if source == "manual":
+        return None
+    if source == "nrel":
+        if not nrel_api_key:
+            raise IrradianceSourceError(MISSING_NREL_KEY_MESSAGE)
+        return NRELClient(api_key=nrel_api_key)
+    return NASAClient()
