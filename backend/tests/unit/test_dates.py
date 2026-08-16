@@ -7,6 +7,8 @@ from helio.core.dates import (
     same_day_in_year,
     same_day_last_month,
     same_day_last_year,
+    whole_month,
+    whole_year,
 )
 
 
@@ -81,3 +83,21 @@ def test_same_day_last_month_clamps_to_the_shorter_month(anchor, expected):
 )
 def test_month_to_date_spans_the_first_through_the_anchor(anchor, expected):
     assert month_to_date(anchor) == expected
+
+
+@pytest.mark.parametrize(
+    ("anchor", "expected"),
+    [
+        (date(2025, 7, 12), (date(2025, 7, 1), date(2025, 7, 31))),
+        (date(2025, 4, 30), (date(2025, 4, 1), date(2025, 4, 30))),
+        # February's length comes from the calendar, not from an assumption.
+        (date(2025, 2, 14), (date(2025, 2, 1), date(2025, 2, 28))),
+        (date(2024, 2, 14), (date(2024, 2, 1), date(2024, 2, 29))),
+    ],
+)
+def test_whole_month_ends_on_the_calendar_last_day(anchor, expected):
+    assert whole_month(anchor) == expected
+
+
+def test_whole_year_spans_january_to_december():
+    assert whole_year(2024) == (date(2024, 1, 1), date(2024, 12, 31))
