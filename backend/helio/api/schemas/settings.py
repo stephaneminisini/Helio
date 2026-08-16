@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-IrradianceSource = Literal["nrel", "nasa", "manual"]
+IrradianceSource = Literal["nasa", "manual"]
 
 
 class SettingsResponse(BaseModel):

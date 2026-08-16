@@ -54,14 +54,20 @@ that polls daily stays connected. After a longer outage, click **Reconnect to En
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `IRRADIANCE_SOURCE` | No | `nrel` | Source for irradiance data. Options: `nrel`, `nasa`, `manual` |
-| `NREL_API_KEY` | If using NREL | — | API key from developer.nrel.gov |
+| `IRRADIANCE_SOURCE` | No | `nasa` | Seeds the source for a new install. Options: `nasa`, `manual` |
+
+`IRRADIANCE_SOURCE` only applies when the system record is first created. After
+that, ingestion reads the source from the database and you change it on the
+Setup tab; the change takes effect on the next poll with no restart.
 
 **Irradiance source options:**
 
-- `nrel` — NREL PVDAQ (best for USA and Canada). Requires `NREL_API_KEY`.
-- `nasa` — NASA POWER API (global coverage, no API key required, slightly lower resolution).
-- `manual` — Disables weather normalization. Performance Ratio is calculated without irradiance correction. Simpler but less accurate for efficiency trending.
+- `nasa` — NASA POWER API (global coverage, no API key required). Returns genuine daily values, which is what weather normalization needs.
+- `manual` — Disables automatic irradiance collection. Performance Ratio is calculated only from irradiance rows you enter yourself.
+
+NREL was removed as a source: its Solar Resource v1 endpoint returns a long-term
+annual average rather than the requested day's measurement, so every Performance
+Ratio derived from it was wrong.
 
 ---
 
@@ -106,8 +112,7 @@ ENPHASE_REDIRECT_URI=http://localhost:8000/api/auth/enphase/callback
 FERNET_KEY=
 
 # ── Weather / Irradiance ──────────────────────────────────────────────────────
-IRRADIANCE_SOURCE=nrel
-NREL_API_KEY=
+IRRADIANCE_SOURCE=nasa
 
 # ── Polling Schedule ──────────────────────────────────────────────────────────
 POLL_HOUR=4
