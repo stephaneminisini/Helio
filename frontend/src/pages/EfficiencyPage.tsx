@@ -7,32 +7,62 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { MonthlyPRPoint } from "../api/client";
+import { MonthlyPRPoint, ProjectedYear } from "../api/client";
 import { StatCard } from "../components/StatCard";
 import { useEfficiency } from "../hooks/useEfficiency";
 
 /** One plotted month. The anomaly flag and its reason travel with the point so
- * the dot renderer and the tooltip can both reach them. */
+ * the dot renderer and the tooltip can both reach them. `projected` is a
+ * separate series from `pr` so measured history is never drawn as a forecast. */
 export interface PRChartPoint {
   month: string;
   pr: number | null;
   expected: number | null;
+  projected: number | null;
   isAnomaly: boolean;
   reason: string | null;
 }
 
-/** Turn the API's PR history into plottable percentages. */
-export function toChartData(history: MonthlyPRPoint[]): PRChartPoint[] {
-  return history.map((p) => ({
+/**
+ * Turn the API's PR history into plottable percentages, followed by the
+ * projected years.
+ *
+ * The last measured month also carries a `projected` value so the forecast line
+ * starts where the history ends rather than floating away from it; that bridge
+ * point is the only place the two series overlap.
+ */
+export function toChartData(
+  history: MonthlyPRPoint[],
+  projection: ProjectedYear[] = []
+): PRChartPoint[] {
+  const measured = history.map((p) => ({
     month: p.month.slice(0, 7),
     pr:
       p.performance_ratio !== null
         ? +(p.performance_ratio * 100).toFixed(1)
         : null,
     expected: p.expected_pr !== null ? +(p.expected_pr * 100).toFixed(1) : null,
+    projected: null as number | null,
     isAnomaly: p.is_anomaly,
     reason: p.anomaly_reason,
   }));
+
+  const last = measured[measured.length - 1];
+  if (projection.length > 0 && last !== undefined) {
+    last.projected = last.pr;
+  }
+
+  return [
+    ...measured,
+    ...projection.map((year) => ({
+      month: String(year.year),
+      pr: null,
+      expected: null,
+      projected: +(year.projected_pr * 100).toFixed(1),
+      isAnomaly: false,
+      reason: null,
+    })),
+  ];
 }
 
 /**
@@ -60,12 +90,19 @@ export function anomalyDot(props: {
 export function PRTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload as PRChartPoint;
+  // A year with no measured PR is a projected one; say so rather than reporting
+  // the actual value as missing.
+  const isProjected = point.pr === null && point.projected !== null;
   return (
     <div className="bg-gray-800 rounded-lg px-3 py-2 text-xs">
       <p className="text-gray-50 font-medium">{point.month}</p>
-      <p className="text-solar-400">
-        Actual PR {point.pr !== null ? `${point.pr}%` : "not available"}
-      </p>
+      {isProjected ? (
+        <p className="text-gray-300">Projected PR {point.projected}%</p>
+      ) : (
+        <p className="text-solar-400">
+          Actual PR {point.pr !== null ? `${point.pr}%` : "not available"}
+        </p>
+      )}
       {point.expected !== null && (
         <p className="text-gray-400">Expected PR {point.expected}%</p>
       )}
@@ -81,9 +118,10 @@ export function EfficiencyPage() {
   if (error) return <div className="text-red-400 p-8">Error: {error}</div>;
   if (!data) return null;
 
-  const { degradation, pr_history } = data;
-  const chartData = toChartData(pr_history);
+  const { degradation, pr_history, projection } = data;
+  const chartData = toChartData(pr_history, projection.years);
   const anomalies = pr_history.filter((p) => p.is_anomaly).length;
+  const projected = projection.years.length > 0;
 
   return (
     <div className="space-y-6">
@@ -112,13 +150,37 @@ export function EfficiencyPage() {
             highlight
           />
         )}
+        {projected && projection.annual_rate !== null && (
+          <StatCard
+            label="Projected Trend"
+            value={`${(projection.annual_rate * 100).toFixed(2)}%/yr`}
+            // The confidence caveat travels with the figure so a projection off
+            // a few months is never read as firmly as one off several years.
+            sub={
+              projection.low_confidence
+                ? `Low confidence: ${projection.months_of_history} months of history`
+                : `From ${projection.months_of_history} months of history`
+            }
+          />
+        )}
+        {projection.warranty_breach_year !== null && (
+          <StatCard
+            label="Warranty Breach"
+            value={String(projection.warranty_breach_year)}
+            sub="Projected below warranty"
+            highlight
+          />
+        )}
         {degradation.exceeds_warranty && (
           <StatCard label="Status" value="Above Threshold" highlight />
         )}
       </div>
 
       <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-5">
-        <p className="text-sm text-gray-400 mb-4">Performance Ratio history (%)</p>
+        <p className="text-sm text-gray-400 mb-4">
+          Performance Ratio history (%)
+          {projected && " - the dotted line ahead is projected, not measured"}
+        </p>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData}>
             <XAxis
@@ -126,7 +188,9 @@ export function EfficiencyPage() {
               tick={{ fill: "#9ca3af", fontSize: 11 }}
             />
             <YAxis
-              domain={[60, 100]}
+              // 60 is the usual floor, but a projection heading below it has to
+              // stay on the chart rather than being clipped away.
+              domain={[(dataMin: number) => Math.min(60, Math.floor(dataMin)), 100]}
               tick={{ fill: "#9ca3af", fontSize: 11 }}
             />
             <Tooltip content={<PRTooltip />} />
@@ -137,6 +201,18 @@ export function EfficiencyPage() {
               strokeWidth={2}
               dot={anomalyDot}
               name="Actual PR %"
+            />
+            {/* Same amber as the measured line, but dotted and dot-less: the
+                projection continues the same quantity without pretending any of
+                it was recorded. */}
+            <Line
+              type="monotone"
+              dataKey="projected"
+              stroke="#fbbf24"
+              strokeWidth={2}
+              strokeDasharray="2 4"
+              dot={false}
+              name="Projected PR %"
             />
             <Line
               type="monotone"

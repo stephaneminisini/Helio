@@ -343,7 +343,10 @@ ORDER BY yr;
 - `GET /api/overview` — today's stats + comparisons
 - `GET /api/efficiency` — PR history + degradation metrics; each month carries
   `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
-  marks with a dot and repeats in the tooltip
+  marks with a dot and repeats in the tooltip. The `projection` block extends the
+  fitted PR trend five years past the last measured year, carries its own
+  `low_confidence` flag below twelve months of history, and names the
+  `warranty_breach_year` when the trend falls below the warranted curve
 - `GET /api/panels?days=30` — per-panel production, the fleet average and
   standard deviation, and the underperforming flag. Answers 200 with
   `data_available: false` and a reason when there is nothing to show

@@ -5,11 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helio.analytics.degradation import (
     calculate_annual_degradation,
     estimate_lost_production,
+    project_future_efficiency,
 )
 from helio.api.schemas.efficiency import (
     DegradationSummary,
     EfficiencyResponse,
     MonthlyPRPoint,
+    ProjectionSummary,
 )
 from helio.db.models import (
     DEFAULT_ENERGY_RATE_CURRENCY,
@@ -22,20 +24,26 @@ from helio.db.session import get_db
 
 router = APIRouter()
 
+# Far enough ahead to show where the trend is heading, short enough that the
+# extrapolation is still worth reading.
+PROJECTION_YEARS = 5
+
 
 @router.get("/efficiency", response_model=EfficiencyResponse)
 async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyResponse:
-    """Return performance ratio history and degradation metrics.
+    """Return performance ratio history, degradation metrics and a projection.
 
     The warranty threshold and the energy rate come from the system record, so
     each install is measured against the warranty its modules actually carry and
-    lost production is priced at the tariff the owner pays.
+    lost production is priced at the tariff the owner pays. The projection
+    extends the measured trend PROJECTION_YEARS years past the last measured
+    year, carrying its own confidence flag.
 
     Args:
         db: Async database session (injected).
 
     Returns:
-        EfficiencyResponse with PR history and degradation summary.
+        EfficiencyResponse with PR history, degradation summary and projection.
     """
     system = (await db.execute(select(System).limit(1))).scalar_one_or_none()
     if system is None:
@@ -49,6 +57,13 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
                 exceeds_warranty=False,
                 energy_rate_per_kwh=float(DEFAULT_ENERGY_RATE_PER_KWH),
                 energy_rate_currency=DEFAULT_ENERGY_RATE_CURRENCY,
+            ),
+            projection=ProjectionSummary(
+                months_of_history=0,
+                annual_rate=None,
+                low_confidence=True,
+                warranty_breach_year=None,
+                years=[],
             ),
         )
 
@@ -81,6 +96,7 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
     energy_rate = float(system.energy_rate_per_kwh)
     annual_rates = await calculate_annual_degradation(db, system.id)
     lost = await estimate_lost_production(db, system.id, energy_rate)
+    projection = await project_future_efficiency(db, system, PROJECTION_YEARS)
 
     # The stored threshold is a percent per year; annual_drop is a difference of
     # Performance Ratio fractions, so the threshold is scaled to match.
@@ -102,4 +118,5 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
             energy_rate_per_kwh=energy_rate,
             energy_rate_currency=system.energy_rate_currency,
         ),
+        projection=ProjectionSummary(**projection),
     )

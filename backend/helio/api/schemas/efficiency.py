@@ -43,8 +43,32 @@ class DegradationSummary(BaseModel):
     energy_rate_currency: str
 
 
+class ProjectedYear(BaseModel):
+    """One projected calendar year, valued at the year's mid-point."""
+
+    year: int
+    projected_pr: float
+
+
+class ProjectionSummary(BaseModel):
+    """Forward extrapolation of the measured Performance Ratio trend.
+
+    annual_rate is the PR fraction the trend loses per year, so it compares
+    directly against DegradationSummary.warranty_threshold divided by 100. It is
+    null, low_confidence true and years empty whenever the stored history cannot
+    support a trend line at all.
+    """
+
+    months_of_history: int
+    annual_rate: float | None
+    low_confidence: bool
+    warranty_breach_year: int | None
+    years: list[ProjectedYear]
+
+
 class EfficiencyResponse(BaseModel):
     """Response model for the /api/efficiency endpoint."""
 
     pr_history: list[MonthlyPRPoint]
     degradation: DegradationSummary
+    projection: ProjectionSummary

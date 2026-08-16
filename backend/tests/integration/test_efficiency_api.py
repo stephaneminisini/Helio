@@ -69,6 +69,9 @@ def _system(
 ) -> MagicMock:
     system = MagicMock(spec=System)
     system.id = 1
+    # The projection measures elapsed years from the install date, so it has to
+    # be a real date even on tests that only care about the warranty figures.
+    system.install_date = date(2020, 1, 1)
     system.warranty_degradation_rate = Decimal(warranty)
     system.energy_rate_per_kwh = Decimal(rate)
     system.energy_rate_currency = currency
@@ -187,6 +190,64 @@ async def test_efficiency_leaves_the_reason_null_on_a_healthy_month(
     assert point["anomaly_reason"] is None
 
 
+def _pr_month(month: date, performance_ratio: str) -> MagicMock:
+    """A monthly summary row with just enough for the trend fit."""
+    row = MagicMock(spec=MonthlySummary)
+    row.month = month
+    row.production_kwh = Decimal("880.5")
+    row.performance_ratio = Decimal(performance_ratio)
+    row.expected_pr = Decimal("0.8500")
+    row.is_anomaly = False
+    row.anomaly_reason = None
+    return row
+
+
+@pytest.mark.asyncio
+async def test_efficiency_projects_the_measured_trend_forward(
+    two_years_dropping, lost_production
+):
+    """AC1 and AC3: the response carries the projected years and its confidence."""
+    two_years_dropping(0.001)
+    history = [
+        _pr_month(date(2023, 1, 1), "0.8400"),
+        _pr_month(date(2024, 1, 1), "0.8200"),
+    ]
+
+    async with _client_with_db(_session(_system(), history)) as client:
+        response = await client.get("/api/efficiency")
+
+    assert response.status_code == 200
+    projection = response.json()["projection"]
+    assert projection["months_of_history"] == 2
+    assert projection["annual_rate"] == pytest.approx(0.02, abs=1e-3)
+    # Two points cannot average the seasons out, so the client is warned.
+    assert projection["low_confidence"] is True
+    assert [entry["year"] for entry in projection["years"]] == [
+        2025,
+        2026,
+        2027,
+        2028,
+        2029,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_efficiency_projection_is_empty_without_enough_history(
+    two_years_dropping, lost_production
+):
+    """AC2: a single month yields no projected years and no rate."""
+    two_years_dropping(0.001)
+
+    async with _client_with_db(_session(_system(), [_month(False, None)])) as client:
+        response = await client.get("/api/efficiency")
+
+    projection = response.json()["projection"]
+    assert projection["months_of_history"] == 1
+    assert projection["annual_rate"] is None
+    assert projection["low_confidence"] is True
+    assert projection["years"] == []
+
+
 @pytest.mark.asyncio
 async def test_efficiency_reports_the_documented_defaults_with_no_system():
     """AC4: an install with nothing configured still answers, on the defaults."""
@@ -199,3 +260,4 @@ async def test_efficiency_reports_the_documented_defaults_with_no_system():
     assert degradation["energy_rate_per_kwh"] == pytest.approx(0.15)
     assert degradation["energy_rate_currency"] == "USD"
     assert degradation["exceeds_warranty"] is False
+    assert response.json()["projection"]["years"] == []
