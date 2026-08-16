@@ -91,9 +91,10 @@ async def create_settings(
         )
         raise HTTPException(status_code=409, detail="System already configured")
 
-    # exclude_none is load-bearing: degradation_rate and irradiance_source are
-    # NOT NULL with column defaults, so an explicit null must be dropped rather
-    # than written.
+    # exclude_none is load-bearing: degradation_rate, warranty_degradation_rate,
+    # energy_rate_per_kwh, energy_rate_currency and irradiance_source are NOT
+    # NULL with column defaults, so an explicit null must be dropped rather than
+    # written.
     system = System(**payload.model_dump(exclude_none=True))
     db.add(system)
     try:

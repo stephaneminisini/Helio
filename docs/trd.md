@@ -77,6 +77,9 @@ CREATE TABLE systems (
     tilt_angle_deg      NUMERIC(5, 2),
     azimuth_deg         NUMERIC(6, 2),
     degradation_rate    NUMERIC(5, 3) DEFAULT 0.5,  -- %/yr
+    warranty_degradation_rate NUMERIC(5, 3) NOT NULL DEFAULT 0.7,  -- %/yr
+    energy_rate_per_kwh NUMERIC(8, 4) NOT NULL DEFAULT 0.15,
+    energy_rate_currency VARCHAR(3) NOT NULL DEFAULT 'USD',  -- ISO 4217
     irradiance_source   VARCHAR(32) DEFAULT 'nasa',
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
