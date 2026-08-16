@@ -176,6 +176,12 @@ lint-check: ## Check formatting and lint without making changes (for CI)
 	$(COMPOSE) exec $(API_SERVICE) uv run ruff format --check helio/ tests/
 	$(COMPOSE) exec $(API_SERVICE) uv run ruff check helio/ tests/
 
+# The frontend image serves a static build and carries no dev dependencies, so
+# ESLint runs on the host, exactly as CI does.
+.PHONY: lint-frontend
+lint-frontend: ## Lint the frontend with ESLint
+	cd frontend && npm run lint
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 .PHONY: update
