@@ -332,14 +332,23 @@ ORDER BY yr;
 - `build_monthly_summary(system_id, month)` — calculates PR, expected PR, anomaly flag
 - `calculate_degradation(system_id)` — returns annual rate vs. warranty threshold
 
-### 5.8 `helio/api/routes/`
+### 5.8 `helio/analytics/anomaly.py`
+- `flag_underperforming_panels(system_id, start, end)` — compares each panel to
+  its own fleet over a window and flags anything more than 2 population standard
+  deviations below the mean (BR-16). Panels are ranked against each other, not
+  against a nameplate rating, so weather and season cancel out. A fleet under 3
+  panels is reported without flags rather than judged on a degenerate spread.
+
+### 5.9 `helio/api/routes/`
 - `GET /api/overview` — today's stats + comparisons
 - `GET /api/efficiency` — PR history + degradation metrics
-- `GET /api/panels` — panel heatmap data
+- `GET /api/panels?days=30` — per-panel production, the fleet average and
+  standard deviation, and the underperforming flag. Answers 200 with
+  `data_available: false` and a reason when there is nothing to show
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD`
 - `GET/POST/PUT /api/settings` — system configuration (POST for fresh install)
 
-### 5.9 `helio/api/main.py`
+### 5.10 `helio/api/main.py`
 - FastAPI app entrypoint
 - CORS, lifespan (starts scheduler on startup)
 - Static file serving for React build
