@@ -33,12 +33,18 @@ export function OverviewPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ComparisonBar
           label="Today vs same day last year"
           current={data.day_comparison.current_kwh}
           prior={data.day_comparison.prior_kwh}
           pctChange={data.day_comparison.pct_change}
+        />
+        <ComparisonBar
+          label="Today vs same day last month"
+          current={data.day_vs_last_month.current_kwh}
+          prior={data.day_vs_last_month.prior_kwh}
+          pctChange={data.day_vs_last_month.pct_change}
         />
         <ComparisonBar
           label="This month vs last month"
@@ -47,12 +53,26 @@ export function OverviewPage() {
           pctChange={data.month_comparison.pct_change}
         />
         <ComparisonBar
+          label="This month vs same month last year"
+          current={data.month_vs_last_year.current_kwh}
+          prior={data.month_vs_last_year.prior_kwh}
+          pctChange={data.month_vs_last_year.pct_change}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        <ComparisonBar
           label="Year to date vs prior year"
           current={data.ytd_comparison.current_kwh}
           prior={data.ytd_comparison.prior_kwh}
           pctChange={data.ytd_comparison.pct_change}
         />
       </div>
+
+      <p className="text-xs text-gray-500">
+        Month and year comparisons stop at the same day of the prior period, so a
+        partial period is never measured against a whole one.
+      </p>
     </div>
   );
 }

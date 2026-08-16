@@ -24,23 +24,26 @@ export function ComparisonBar({
           <span className="text-2xl font-semibold text-white">
             {current.toFixed(1)} {unit}
           </span>
-          {prior !== null && (
-            <span className="ml-2 text-sm text-gray-400">vs {prior.toFixed(1)}</span>
-          )}
+          <span className="ml-2 text-sm text-gray-400">
+            vs {prior !== null ? prior.toFixed(1) : "-"}
+          </span>
         </div>
-        {pctChange !== null && (
-          <span
-            className={clsx(
-              "text-sm font-medium px-2 py-1 rounded-md",
-              positive
+        {/* A period with nothing stored gets a dash: no reading at all is not
+            the same as a reading of zero percent. */}
+        <span
+          className={clsx(
+            "text-sm font-medium px-2 py-1 rounded-md",
+            pctChange === null
+              ? "text-gray-400 bg-gray-400/10"
+              : positive
                 ? "text-green-400 bg-green-400/10"
                 : "text-red-400 bg-red-400/10"
-            )}
-          >
-            {positive ? "+" : ""}
-            {pctChange.toFixed(1)}%
-          </span>
-        )}
+          )}
+        >
+          {pctChange === null
+            ? "-"
+            : `${positive ? "+" : ""}${pctChange.toFixed(1)}%`}
+        </span>
       </div>
     </div>
   );

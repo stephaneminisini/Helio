@@ -18,7 +18,9 @@ class OverviewResponse(BaseModel):
     today_kwh: float
     current_power_w: float | None
     day_comparison: ComparisonPair
+    day_vs_last_month: ComparisonPair
     month_comparison: ComparisonPair
+    month_vs_last_year: ComparisonPair
     ytd_comparison: ComparisonPair
     best_day_kwh: float | None
     best_day_date: date | None
