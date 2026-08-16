@@ -20,7 +20,7 @@ const SYSTEM: SystemSettings = {
   tilt_angle_deg: "30.00",
   azimuth_deg: "180.00",
   degradation_rate: "0.500",
-  irradiance_source: "nrel",
+  irradiance_source: "nasa",
   enphase_connected: false,
 };
 

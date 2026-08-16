@@ -9,17 +9,19 @@ from loguru import logger
 
 from helio.core.config import IRRADIANCE_SOURCES
 
-NREL_URL = "https://developer.nrel.gov/api/solar/solar_resource/v1.json"
 NASA_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
-MISSING_NREL_KEY_MESSAGE = (
-    "irradiance_source is 'nrel' but NREL_API_KEY is not set. Get a free key at "
-    "https://developer.nrel.gov/signup/, or switch the source to 'nasa' on the "
-    "Setup tab (no key needed)."
-)
+# NASA POWER reports absent measurements as -999 rather than omitting the key.
+# Clamping that to 0.0 would store a real "the sun did not shine" day, which
+# drives theoretical_kwh to 0 and makes the month's PR meaningless.
+NASA_FILL_VALUE = -999.0
 
 
 class IrradianceSourceError(RuntimeError):
     """Raised when a configured irradiance source cannot supply data."""
+
+
+class IrradianceUnavailableError(RuntimeError):
+    """Raised when a source has no usable measurement for the requested date."""
 
 
 def compute_poa(
@@ -89,58 +91,44 @@ class IrradianceClient(ABC):
             target_date: Date to fetch irradiance for.
 
         Returns:
-            Dict with keys 'ghi' and 'dni' in kWh/m2/day.
+            Dict with keys 'ghi' and 'dni' in kWh/m2/day for `target_date`.
 
         Raises:
             httpx.HTTPStatusError: On API errors.
+            IrradianceUnavailableError: If the source has no usable measurement
+                for `target_date`. Callers write no row rather than storing a
+                fabricated value.
         """
 
 
-class NRELClient(IrradianceClient):
-    """NREL Solar Resource Data API client.
+def _nasa_measurement(
+    props: dict[str, dict[str, float]], parameter: str, date_str: str
+) -> float:
+    """Read one NASA POWER parameter, rejecting absent measurements.
 
     Args:
-        api_key: NREL developer API key.
+        props: The `properties.parameter` object from a NASA POWER response.
+        parameter: Parameter name to read, e.g. 'ALLSKY_SFC_SW_DWN'.
+        date_str: The requested date as YYYYMMDD.
+
+    Returns:
+        The measurement in kWh/m2/day.
+
+    Raises:
+        IrradianceUnavailableError: If the parameter or date is missing, or the
+            value is the -999 fill marker.
     """
-
-    def __init__(self, api_key: str) -> None:
-        self._api_key = api_key
-
-    async def get_daily_irradiance(
-        self, latitude: float, longitude: float, target_date: date
-    ) -> dict[str, float]:
-        """Fetch long-term annual average GHI and DNI from NREL Solar Resource API.
-
-        Note: The NREL Solar Resource API v1 returns long-term statistical averages
-        (typically 30-year TMY data), not actual daily measured values. The
-        target_date parameter is accepted for interface compatibility but does not
-        affect the returned values. All days at the same location return the same
-        annual average irradiance. Use NASAClient for actual daily historical data.
-
-        Args:
-            latitude: Site latitude in decimal degrees.
-            longitude: Site longitude in decimal degrees.
-            target_date: Accepted for interface compatibility; does not affect result.
-
-        Returns:
-            Dict with keys 'ghi' and 'dni' in kWh/m2/day (annual averages).
-
-        Raises:
-            httpx.HTTPStatusError: On API errors.
-        """
-        params = {
-            "api_key": self._api_key,
-            "lat": latitude,
-            "lon": longitude,
-        }
-        async with httpx.AsyncClient() as http:
-            response = await http.get(NREL_URL, params=params)
-        response.raise_for_status()
-        outputs = response.json().get("outputs", {})
-        ghi = float(outputs.get("avg_ghi", {}).get("annual", 0))
-        dni = float(outputs.get("avg_dni", {}).get("annual", 0))
-        logger.debug("NREL irradiance for {}: ghi={}, dni={}", target_date, ghi, dni)
-        return {"ghi": ghi, "dni": dni}
+    raw = props.get(parameter, {}).get(date_str)
+    if raw is None:
+        raise IrradianceUnavailableError(
+            f"NASA POWER returned no {parameter} for {date_str}"
+        )
+    value = float(raw)
+    if value <= NASA_FILL_VALUE:
+        raise IrradianceUnavailableError(
+            f"NASA POWER reported {parameter} as unavailable ({value}) for {date_str}"
+        )
+    return max(0.0, value)
 
 
 class NASAClient(IrradianceClient):
@@ -157,10 +145,13 @@ class NASAClient(IrradianceClient):
             target_date: Date to fetch irradiance for.
 
         Returns:
-            Dict with keys 'ghi' and 'dni' in kWh/m2/day.
+            Dict with keys 'ghi' and 'dni' in kWh/m2/day, measured on
+            `target_date`.
 
         Raises:
             httpx.HTTPStatusError: On API errors.
+            IrradianceUnavailableError: If either parameter is absent or carries
+                the -999 fill value for `target_date`.
         """
         date_str = target_date.strftime("%Y%m%d")
         params = {
@@ -176,13 +167,13 @@ class NASAClient(IrradianceClient):
             response = await http.get(NASA_URL, params=params)
         response.raise_for_status()
         props = response.json().get("properties", {}).get("parameter", {})
-        ghi = max(0.0, float(props.get("ALLSKY_SFC_SW_DWN", {}).get(date_str, 0) or 0))
-        dni = max(0.0, float(props.get("ALLSKY_SFC_SW_DNI", {}).get(date_str, 0) or 0))
+        ghi = _nasa_measurement(props, "ALLSKY_SFC_SW_DWN", date_str)
+        dni = _nasa_measurement(props, "ALLSKY_SFC_SW_DNI", date_str)
         logger.debug("NASA irradiance for {}: ghi={}, dni={}", target_date, ghi, dni)
         return {"ghi": ghi, "dni": dni}
 
 
-def build_irradiance_client(source: str, nrel_api_key: str) -> IrradianceClient | None:
+def build_irradiance_client(source: str) -> IrradianceClient | None:
     """Return the client for a configured irradiance source.
 
     Callers pass the source stored on the system record rather than the
@@ -192,15 +183,13 @@ def build_irradiance_client(source: str, nrel_api_key: str) -> IrradianceClient 
 
     Args:
         source: Source identifier stored on the system record.
-        nrel_api_key: NREL developer key; required only when source is 'nrel'.
 
     Returns:
         The matching client, or None when source is 'manual' and irradiance rows
         are entered by hand so nothing should be fetched.
 
     Raises:
-        IrradianceSourceError: If source is not a supported value, or is 'nrel'
-            while NREL_API_KEY is unset.
+        IrradianceSourceError: If source is not a supported value.
     """
     if source not in IRRADIANCE_SOURCES:
         raise IrradianceSourceError(
@@ -209,8 +198,4 @@ def build_irradiance_client(source: str, nrel_api_key: str) -> IrradianceClient 
         )
     if source == "manual":
         return None
-    if source == "nrel":
-        if not nrel_api_key:
-            raise IrradianceSourceError(MISSING_NREL_KEY_MESSAGE)
-        return NRELClient(api_key=nrel_api_key)
     return NASAClient()

@@ -231,14 +231,19 @@ async def poll_irradiance(
 
     Args:
         session: Active async database session.
-        client: IrradianceClient (NRELClient or NASAClient).
+        client: IrradianceClient supplying the daily measurement.
         system_id: DB system ID.
         latitude: Site latitude.
         longitude: Site longitude.
         tilt: Panel tilt in degrees.
         azimuth: Panel azimuth in degrees.
         target_date: Date to fetch.
-        source: 'nrel' or 'nasa'.
+        source: Source identifier recorded on the row, e.g. 'nasa'.
+
+    Raises:
+        httpx.HTTPStatusError: On API errors from the source.
+        IrradianceUnavailableError: If the source has no measurement for
+            target_date. Nothing is written, leaving the day as a gap.
     """
     from helio.ingestion.irradiance_client import compute_poa
 

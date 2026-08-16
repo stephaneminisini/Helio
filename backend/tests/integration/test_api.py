@@ -166,7 +166,7 @@ async def test_post_settings_creates_system():
     assert data["latitude"] == "45.523100"
     assert data["longitude"] == "-122.676500"
     assert data["degradation_rate"] == "0.5"
-    assert data["irradiance_source"] == "nrel"
+    assert data["irradiance_source"] == "nasa"
     assert len(added) == 1
     assert added[0].enphase_system_id == "test-001"
     assert added[0].install_date == date(2023, 1, 1)
@@ -366,7 +366,7 @@ def _configured_system() -> MagicMock:
     system.tilt_angle_deg = Decimal("30.0")
     system.azimuth_deg = Decimal("180.0")
     system.degradation_rate = Decimal("0.5")
-    system.irradiance_source = "nrel"
+    system.irradiance_source = "nasa"
     return system
 
 
@@ -436,7 +436,7 @@ async def test_put_settings_422_when_irradiance_source_unsupported():
     detail = response.json()["detail"]
     assert [error["loc"][-1] for error in detail] == ["irradiance_source"]
     assert "nasa" in str(detail)
-    assert system.irradiance_source == "nrel"
+    assert system.irradiance_source == "nasa"
     session.commit.assert_not_awaited()
 
 
@@ -455,7 +455,7 @@ async def test_put_settings_updates_system():
     mock_system.tilt_angle_deg = Decimal("30.0")
     mock_system.azimuth_deg = Decimal("180.0")
     mock_system.degradation_rate = Decimal("0.5")
-    mock_system.irradiance_source = "nrel"
+    mock_system.irradiance_source = "nasa"
 
     async def mock_execute(stmt):
         return MagicMock(scalar_one_or_none=MagicMock(return_value=mock_system))
@@ -504,7 +504,7 @@ async def test_get_settings_reports_enphase_connection_state(
         enphase_system_id="test-005",
         install_date=date(2023, 1, 1),
         degradation_rate=Decimal("0.5"),
-        irradiance_source="nrel",
+        irradiance_source="nasa",
     )
 
     async with _client_with_db(_mock_session(existing=system)) as client:

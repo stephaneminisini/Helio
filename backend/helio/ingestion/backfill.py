@@ -12,10 +12,10 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helio.analytics.summarizer import build_daily_summary
-from helio.core.config import settings
 from helio.db.models import System
 from helio.ingestion.irradiance_client import (
     IrradianceSourceError,
+    IrradianceUnavailableError,
     build_irradiance_client,
 )
 from helio.ingestion.poller import (
@@ -50,9 +50,7 @@ async def backfill(session: AsyncSession, system: System) -> None:
     # Both resolved once, not per day, so an unconfigured site logs one warning
     # rather than one per backfilled day.
     try:
-        irr_client = build_irradiance_client(
-            system.irradiance_source, settings.nrel_api_key
-        )
+        irr_client = build_irradiance_client(system.irradiance_source)
     except IrradianceSourceError as exc:
         logger.error("Irradiance backfill skipped: {}", exc)
         irr_client = None
@@ -91,6 +89,8 @@ async def backfill(session: AsyncSession, system: System) -> None:
                     day,
                     system.irradiance_source,
                 )
+            except IrradianceUnavailableError as exc:
+                logger.warning("No irradiance available for {}: {}", day, exc)
             except httpx.HTTPStatusError as exc:
                 logger.error("Irradiance backfill failed for {}: {}", day, exc)
             except Exception as exc:

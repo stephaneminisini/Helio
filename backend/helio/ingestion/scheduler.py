@@ -11,6 +11,7 @@ from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
 from helio.ingestion.irradiance_client import (
     IrradianceSourceError,
+    IrradianceUnavailableError,
     build_irradiance_client,
 )
 from helio.ingestion.poller import irradiance_location, poll_intervals, poll_irradiance
@@ -56,9 +57,7 @@ async def run_daily_poll() -> None:
 
         location = irradiance_location(system)
         try:
-            irr_client = build_irradiance_client(
-                system.irradiance_source, settings.nrel_api_key
-            )
+            irr_client = build_irradiance_client(system.irradiance_source)
         except IrradianceSourceError as exc:
             logger.error("Irradiance skipped for {}: {}", yesterday, exc)
             failed_steps.append("irradiance")
@@ -79,6 +78,15 @@ async def run_daily_poll() -> None:
                         yesterday,
                         system.irradiance_source,
                     )
+                except IrradianceUnavailableError as exc:
+                    # No row is written, so the day stays a gap a later backfill
+                    # can fill once the source publishes the measurement.
+                    logger.warning(
+                        "No irradiance available for {}, left for backfill: {}",
+                        yesterday,
+                        exc,
+                    )
+                    failed_steps.append("irradiance")
                 except httpx.HTTPStatusError as exc:
                     logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
                     failed_steps.append("irradiance")
