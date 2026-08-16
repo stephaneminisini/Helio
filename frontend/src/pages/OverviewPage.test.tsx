@@ -18,7 +18,8 @@ function overview(overrides: Partial<OverviewData> = {}): OverviewData {
   return {
     today: "2025-07-12",
     today_kwh: 30,
-    current_power_w: null,
+    current_power_w: 4210,
+    current_power_at: "2025-07-12T13:00:00Z",
     day_comparison: pair(30, 20, 50),
     day_vs_last_month: pair(30, 24, 25),
     month_comparison: pair(400, 320, 25),
@@ -98,6 +99,37 @@ describe("OverviewPage", () => {
     expect(years).toHaveLength(3);
     // today is 2025-07-12, so 2025 is the baseline year.
     expect(within(years[2]).getByText("this year")).toBeInTheDocument();
+  });
+
+  it("shows the live reading with the time it was measured", async () => {
+    stubFetch({ [OVERVIEW_PATH]: response(200, overview()) });
+
+    render(<OverviewPage />);
+
+    expect(await screen.findByText("4210 W")).toBeInTheDocument();
+    // The clock is rendered in the viewer's timezone, so only its shape is
+    // predictable here; what matters is that a time is shown at all.
+    const live = card("Current Power");
+    expect(within(live).getByText(/Measured at \d{2}:\d{2}/)).toBeInTheDocument();
+  });
+
+  it("shows the live reading as unavailable when Enphase reported nothing", async () => {
+    stubFetch({
+      [OVERVIEW_PATH]: response(
+        200,
+        overview({ current_power_w: null, current_power_at: null })
+      ),
+    });
+
+    render(<OverviewPage />);
+
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+    const live = card("Current Power");
+    expect(
+      within(live).getByText("Enphase did not report a reading")
+    ).toBeInTheDocument();
+    // The rest of the dashboard is served regardless.
+    expect(within(card("Today")).getByText("30.0 kWh")).toBeInTheDocument();
   });
 
   it("shows an error state when the request fails", async () => {

@@ -3,6 +3,21 @@ import { StatCard } from "../components/StatCard";
 import { YtdHistory } from "../components/YtdHistory";
 import { useOverview } from "../hooks/useOverview";
 
+/**
+ * Caption for the live power card.
+ *
+ * A reading is only meaningful with the time it was taken: an envoy reports in
+ * batches, so a figure on its own cannot be told apart from a stale one.
+ */
+function livePowerSub(watts: number | null, reportedAt: string | null): string {
+  if (watts === null) return "Enphase did not report a reading";
+  if (reportedAt === null) return "Reported without a timestamp";
+  return `Measured at ${new Date(reportedAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
 export function OverviewPage() {
   const { data, loading, error } = useOverview();
 
@@ -20,6 +35,15 @@ export function OverviewPage() {
           value={`${data.today_kwh.toFixed(1)} kWh`}
           sub={data.today}
           highlight
+        />
+        <StatCard
+          label="Current Power"
+          value={
+            data.current_power_w !== null
+              ? `${data.current_power_w.toFixed(0)} W`
+              : "Unavailable"
+          }
+          sub={livePowerSub(data.current_power_w, data.current_power_at)}
         />
         <StatCard
           label="All Time"

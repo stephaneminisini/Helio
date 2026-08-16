@@ -284,7 +284,11 @@ ORDER BY yr;
 
 ### 5.4 `helio/ingestion/enphase_client.py`
 - OAuth 2.0 token management (access + refresh, 30-day expiry)
-- Methods: `get_intervals()`, `get_panels()`, `get_system_info()`
+- Methods: `get_intervals()`, `get_panels()`, `get_system_info()`,
+  `get_current_power()`
+- `get_current_power()` reads `/systems/{id}/summary` and returns the latest
+  output with the time the envoy measured it, or None when the summary carries
+  no reading yet
 - Exponential backoff on rate limit (429) responses
 
 ### 5.5 `helio/ingestion/irradiance_client.py`
@@ -304,10 +308,12 @@ ORDER BY yr;
 - `calculate_degradation(system_id)` — returns annual rate vs. warranty threshold
 
 ### 5.8 `helio/api/routes/`
-- `GET /api/overview` — today's stats + four comparison pairs (day vs last year,
-  day vs last month, month vs last month, month vs same month last year) plus a
-  year-to-date series: one entry per year since install, each 1 January through
-  the anchor's day of that year, with the current year's delta against it
+- `GET /api/overview` — live current power with the time it was measured (both
+  null when Enphase cannot be reached), today's stats, four comparison pairs
+  (day vs last year, day vs last month, month vs last month, month vs same
+  month last year) and a year-to-date series: one entry per year since install,
+  each 1 January through the anchor's day of that year, with the current year's
+  delta against it
 - `GET /api/efficiency` — PR history + degradation metrics
 - `GET /api/panels` — panel heatmap data
 - `GET /api/compare?period=day|month|year&date=YYYY-MM-DD` — the named period
@@ -343,6 +349,17 @@ ORDER BY yr;
 - `pct_change(current, prior)` — percentage change to 1 decimal, or None when
   the prior figure is missing or zero, so an unmeasured period reads as unknown
   rather than as an infinite improvement
+
+### 5.12 `helio/ingestion/live_power.py`
+- `get_live_power(session, system)` — the latest output for the dashboard,
+  fetched at most once per `CACHE_TTL_SECONDS` (15 minutes, the envoy's own
+  reporting cadence) so a dashboard left open does not spend the Enphase
+  request quota
+- A failed fetch is cached as well: when Enphase is unreachable or rate
+  limiting, retrying on every render spends what quota is left fastest
+- Simultaneous callers share one upstream call, and every upstream or
+  credential failure resolves to None rather than propagating, so a missing
+  reading never costs the caller the stored history around it
 
 ---
 

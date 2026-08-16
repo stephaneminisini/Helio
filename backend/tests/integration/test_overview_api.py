@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +9,7 @@ from helio.api.main import app
 from helio.api.routes import overview as overview_route
 from helio.db.models import System
 from helio.db.session import get_db
+from helio.ingestion.enphase_client import CurrentProduction
 
 
 def _fake_db(
@@ -69,6 +70,26 @@ async def _client_with_db(session):
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def live_reading(monkeypatch):
+    """Stand in for the Enphase read, which would otherwise leave the process.
+
+    Returns a setter for the reading the route should see; nothing reported is
+    the default, since most of these tests are about stored history.
+    """
+    reported = {"reading": None}
+
+    async def fake_get_live_power(session, system):
+        return reported["reading"]
+
+    monkeypatch.setattr(overview_route, "get_live_power", fake_get_live_power)
+
+    def set_reading(reading):
+        reported["reading"] = reading
+
+    return set_reading
 
 
 @pytest.fixture
@@ -324,6 +345,43 @@ async def test_overview_year_to_date_windows_end_on_the_same_calendar_day(pinned
 
 
 @pytest.mark.asyncio
+async def test_overview_reports_the_live_reading_with_its_timestamp(
+    pinned_today, live_reading
+):
+    """AC1: the latest output, together with the time it was measured."""
+    pinned_today(date(2025, 7, 12))
+    live_reading(
+        CurrentProduction(
+            watts=4210.0, reported_at=datetime(2025, 7, 12, 13, 0, tzinfo=UTC)
+        )
+    )
+    session = _fake_db({date(2025, 7, 12): 30.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    data = response.json()
+    assert data["current_power_w"] == 4210.0
+    assert data["current_power_at"] == "2025-07-12T13:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_overview_serves_the_history_without_a_live_reading(pinned_today):
+    """AC3: an unreachable Enphase costs the reading, not the whole payload."""
+    pinned_today(date(2025, 7, 12))
+    session = _fake_db({date(2025, 7, 12): 30.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_power_w"] is None
+    assert data["current_power_at"] is None
+    assert data["today_kwh"] == 30.0
+
+
+@pytest.mark.asyncio
 async def test_overview_returns_empty_comparisons_with_no_system():
     session = AsyncMock()
     session.execute = AsyncMock(
@@ -335,6 +393,9 @@ async def test_overview_returns_empty_comparisons_with_no_system():
 
     assert response.status_code == 200
     data = response.json()
+    # AC4: nothing is configured, so there is nothing to ask Enphase about.
+    assert data["current_power_w"] is None
+    assert data["current_power_at"] is None
     for field in ("day_comparison", "day_vs_last_month", "month_vs_last_year"):
         assert data[field] == {
             "current_kwh": 0.0,
