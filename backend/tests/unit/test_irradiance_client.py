@@ -4,7 +4,13 @@ import httpx
 import pytest
 import respx
 
-from helio.ingestion.irradiance_client import NASAClient, NRELClient, compute_poa
+from helio.ingestion.irradiance_client import (
+    IrradianceSourceError,
+    NASAClient,
+    NRELClient,
+    build_irradiance_client,
+    compute_poa,
+)
 
 
 def test_compute_poa_returns_positive_value():
@@ -81,3 +87,31 @@ async def test_nasa_client_returns_irradiance():
     )
     assert result["ghi"] == pytest.approx(5.1)
     assert result["dni"] == pytest.approx(4.2)
+
+
+def test_build_irradiance_client_returns_nasa_client():
+    assert isinstance(build_irradiance_client("nasa", ""), NASAClient)
+
+
+def test_build_irradiance_client_returns_nrel_client_when_keyed():
+    assert isinstance(build_irradiance_client("nrel", "test-key"), NRELClient)
+
+
+def test_build_irradiance_client_returns_none_for_manual():
+    """'manual' means the rows are entered by hand, so nothing is fetched."""
+    assert build_irradiance_client("manual", "") is None
+
+
+def test_build_irradiance_client_rejects_unsupported_source():
+    with pytest.raises(IrradianceSourceError) as exc_info:
+        build_irradiance_client("NREL", "test-key")
+
+    assert "not supported" in str(exc_info.value)
+
+
+def test_build_irradiance_client_rejects_nrel_without_api_key():
+    """AC4: the missing key is named so the log says how to fix it."""
+    with pytest.raises(IrradianceSourceError) as exc_info:
+        build_irradiance_client("nrel", "")
+
+    assert "NREL_API_KEY" in str(exc_info.value)
