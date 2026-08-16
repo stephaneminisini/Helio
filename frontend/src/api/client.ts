@@ -28,8 +28,24 @@ export interface MonthlyPRPoint {
   anomaly_reason: string | null;
 }
 
+/** One projected calendar year, valued at the year's mid-point. */
+export interface ProjectedYear {
+  year: number;
+  projected_pr: number;
+}
+
+export interface ProjectionSummary {
+  months_of_history: number;
+  /** PR fraction lost per year by the fitted trend; null when no fit is possible. */
+  annual_rate: number | null;
+  low_confidence: boolean;
+  warranty_breach_year: number | null;
+  years: ProjectedYear[];
+}
+
 export interface EfficiencyData {
   pr_history: MonthlyPRPoint[];
+  projection: ProjectionSummary;
   degradation: {
     annual_rates: Record<string, { avg_pr: number; annual_drop: number | null }>;
     lost_kwh: number;
