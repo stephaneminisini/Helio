@@ -1,0 +1,30 @@
+{
+  "system_id": 12345,
+  "total_devices": 3,
+  "page": 1,
+  "page_size": 20,
+  "start_date": "2024-04-28",
+  "end_date": "2024-04-28",
+  "granularity": "day",
+  "items": "intervals",
+  "devices": [
+    {
+      "serial_number": "482218012345",
+      "intervals": [
+        {"end_at": 1714299900, "powr": 240, "enwh": 20},
+        {"end_at": 1714300200, "powr": 252, "enwh": 21}
+      ]
+    },
+    {
+      "serial_number": "482218012346",
+      "intervals": [
+        {"end_at": 1714299900, "powr": 108, "enwh": 9},
+        {"end_at": 1714300200, "powr": 120, "enwh": 10}
+      ]
+    },
+    {
+      "serial_number": "482218012347",
+      "intervals": []
+    }
+  ]
+}

@@ -193,6 +193,30 @@ CREATE TABLE poll_log (
 );
 ```
 
+### 3.7 `panel_readings`
+
+Daily production per microinverter, for the per-panel heatmap (BR-15, BR-16).
+Enphase reports device-level telemetry as 5-minute intervals; the poller sums
+them into one row per panel per day, which is the grain the heatmap reads.
+`energy_wh` is nullable so a panel that reported no intervals is still recorded
+as present-but-silent rather than omitted from the day.
+
+```sql
+CREATE TABLE panel_readings (
+    id                  BIGSERIAL PRIMARY KEY,
+    system_id           INTEGER REFERENCES systems(id),
+    panel_serial        VARCHAR(64) NOT NULL,  -- microinverter serial
+    day                 DATE NOT NULL,
+    energy_wh           NUMERIC(10, 3),
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (system_id, panel_serial, day)     -- makes a re-poll idempotent
+);
+
+CREATE INDEX idx_panel_readings_system_day
+    ON panel_readings (system_id, day);
+```
+
 ---
 
 ## 4. Key SQL Queries
@@ -287,7 +311,7 @@ ORDER BY yr;
 
 ### 5.4 `helio/ingestion/enphase_client.py`
 - OAuth 2.0 token management (access + refresh, 30-day expiry)
-- Methods: `get_intervals()`, `get_panels()`, `get_system_info()`
+- Methods: `get_intervals()`, `get_panel_data()`, `get_system_info()`
 - Exponential backoff on rate limit (429) responses
 
 ### 5.5 `helio/ingestion/irradiance_client.py`
@@ -297,6 +321,8 @@ ORDER BY yr;
 ### 5.6 `helio/ingestion/poller.py`
 - APScheduler job definitions
 - `poll_intervals()` — daily at 04:00 local
+- `poll_panels()` — daily, immediately after the intervals step. Skipped with a
+  warning when the Enphase plan does not expose device-level telemetry
 - `poll_irradiance()` — daily at 04:30 local
 - `rebuild_summaries()` — daily at 05:00 local
 - Gap detection: queries `poll_log` to identify missed dates and backfills
@@ -338,7 +364,7 @@ ORDER BY yr;
 | Endpoint | Purpose | Frequency |
 |----------|---------|-----------|
 | `GET /api/v4/systems/{id}/telemetry/production_micro` | 15-min intervals | Daily |
-| `GET /api/v4/systems/{id}/devices/micros` | Panel-level data | Daily |
+| `GET /api/v4/systems/{id}/devices/micros/telemetry` | Panel-level data | Daily (one request per 20 panels) |
 | `GET /api/v4/systems/{id}` | System metadata | Once |
 | `POST /oauth/token` | Token refresh | Per poll session |
 
