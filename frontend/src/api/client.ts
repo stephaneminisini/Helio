@@ -24,6 +24,8 @@ export interface MonthlyPRPoint {
   performance_ratio: number | null;
   expected_pr: number | null;
   is_anomaly: boolean;
+  /** The summarizer's explanation of the flag; null when is_anomaly is false. */
+  anomaly_reason: string | null;
 }
 
 export interface EfficiencyData {

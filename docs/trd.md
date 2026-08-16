@@ -341,7 +341,9 @@ ORDER BY yr;
 
 ### 5.9 `helio/api/routes/`
 - `GET /api/overview` — today's stats + comparisons
-- `GET /api/efficiency` — PR history + degradation metrics
+- `GET /api/efficiency` — PR history + degradation metrics; each month carries
+  `is_anomaly` and the summarizer's `anomaly_reason`, which the Efficiency chart
+  marks with a dot and repeats in the tooltip
 - `GET /api/panels?days=30` — per-panel production, the fleet average and
   standard deviation, and the underperforming flag. Answers 200 with
   `data_available: false` and a reason when there is nothing to show

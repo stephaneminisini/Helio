@@ -4,13 +4,19 @@ from pydantic import BaseModel
 
 
 class MonthlyPRPoint(BaseModel):
-    """A single month's performance ratio data point."""
+    """A single month's performance ratio data point.
+
+    anomaly_reason carries the summarizer's explanation of the flag so the chart
+    can say how far below expected the month fell; it is null whenever
+    is_anomaly is false.
+    """
 
     month: date
     production_kwh: float
     performance_ratio: float | None
     expected_pr: float | None
     is_anomaly: bool
+    anomaly_reason: str | None
 
 
 class AnnualRateEntry(BaseModel):
