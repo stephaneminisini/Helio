@@ -483,7 +483,7 @@ helio-monitor/
 │   └── src/
 │       ├── api/                     # Typed API client
 │       ├── hooks/                   # Data-fetching hooks
-│       └── pages/                   # Overview, Efficiency, Setup
+│       └── pages/                   # Overview, Efficiency, Panels, Setup
 └── docs/
     ├── INSTALL.md                   # Full manual install guide
     ├── CONFIGURATION.md             # Environment variable reference
