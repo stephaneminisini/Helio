@@ -3,16 +3,32 @@ from datetime import UTC, date, datetime, time, timedelta
 import httpx
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helio.db.models import DailySummary, EnergyInterval, Irradiance, PollLog, System
-from helio.ingestion.enphase_client import EnphaseClient
+from helio.db.models import (
+    DailySummary,
+    EnergyInterval,
+    Irradiance,
+    PanelReading,
+    PollLog,
+    System,
+)
+from helio.ingestion.enphase_client import (
+    EnphaseClient,
+    PanelDataUnavailableError,
+    PanelEnergy,
+)
 from helio.ingestion.irradiance_client import IrradianceClient
 
 MISSING_COORDINATES_MESSAGE = (
     "Irradiance skipped: this system has no latitude or longitude. Open the "
     "Setup tab at http://localhost:3000, save your site coordinates, and run "
     "the poll again. Performance ratio stays unavailable until then."
+)
+EMPTY_PANEL_PAYLOAD_MESSAGE = (
+    "Enphase reported no microinverters for {}. Per-panel monitoring stays "
+    "empty for that day; the rest of the poll is unaffected."
 )
 
 
@@ -214,6 +230,174 @@ async def poll_intervals(
             "Unexpected poll error for {}-{}: {}", start_date, end_date, original_exc
         )
         raise original_exc
+
+
+async def _upsert_panel_readings(
+    session: AsyncSession,
+    system_id: int,
+    target_date: date,
+    readings: list[PanelEnergy],
+) -> int:
+    """Write one panel_readings row per panel for target_date.
+
+    Args:
+        session: Active async database session.
+        system_id: DB system ID.
+        target_date: Date the readings cover.
+        readings: Per-panel energy totals for that date.
+
+    Returns:
+        The number of rows inserted; the remainder were updates.
+    """
+    existing = await session.execute(
+        select(PanelReading).where(
+            PanelReading.system_id == system_id,
+            PanelReading.day == target_date,
+        )
+    )
+    by_serial = {row.panel_serial: row for row in existing.scalars().all()}
+    inserted = 0
+    for reading in readings:
+        row = by_serial.get(reading.panel_serial)
+        if row is None:
+            session.add(
+                PanelReading(
+                    system_id=system_id,
+                    panel_serial=reading.panel_serial,
+                    day=target_date,
+                    energy_wh=reading.energy_wh,
+                )
+            )
+            inserted += 1
+        else:
+            row.energy_wh = reading.energy_wh
+    return inserted
+
+
+async def _record_panel_failure(
+    session: AsyncSession,
+    system_id: int,
+    started_at: datetime,
+    target_date: date,
+    status: str,
+    message: str,
+) -> None:
+    """Persist the outcome of a failed panel poll.
+
+    The running poll_log row was only flushed, so the rollback that clears the
+    failed transaction discards it; a fresh row carries the outcome instead.
+
+    Args:
+        session: Active async database session.
+        system_id: DB system ID.
+        started_at: When the poll started.
+        target_date: Date the poll covered.
+        status: Row status, 'partial' when panel data is simply unavailable and
+            'error' when the poll genuinely failed.
+        message: Explanation stored on the row.
+    """
+    try:
+        await session.rollback()
+        session.add(
+            PollLog(
+                system_id=system_id,
+                poll_type="panels",
+                started_at=started_at,
+                status=status,
+                error_message=message,
+                completed_at=datetime.now(tz=UTC),
+                date_range_start=target_date,
+                date_range_end=target_date,
+            )
+        )
+        await session.commit()
+    except SQLAlchemyError as exc:
+        logger.error("Failed to persist panels poll log for {}: {}", target_date, exc)
+
+
+async def poll_panels(
+    session: AsyncSession,
+    client: EnphaseClient,
+    system_id: int,
+    target_date: date,
+) -> tuple[int, int]:
+    """Fetch per-panel production for one day and upsert into panel_readings.
+
+    Args:
+        session: Active async database session.
+        client: Authenticated EnphaseClient instance.
+        system_id: DB system ID for the target system.
+        target_date: Date to fetch.
+
+    Returns:
+        Tuple of (records_fetched, records_inserted); fetched minus inserted is
+        the number of rows updated in place.
+
+    Raises:
+        PanelDataUnavailableError: If the Enphase plan does not expose
+            device-level telemetry, or it reports no microinverters at all.
+            Recorded as a 'partial' poll rather than an error because it is a
+            capability limit, not a fault.
+        RuntimeError: On rate-limit exhaustion from the Enphase API.
+        httpx.HTTPStatusError: On non-retryable HTTP errors from the Enphase API.
+        Exception: Re-raises any unexpected error after recording it.
+    """
+    started_at = datetime.now(tz=UTC)
+    poll_log = PollLog(
+        system_id=system_id,
+        poll_type="panels",
+        started_at=started_at,
+        status="running",
+        date_range_start=target_date,
+        date_range_end=target_date,
+    )
+    session.add(poll_log)
+    await session.flush()
+
+    try:
+        readings = await client.get_panel_data(target_date)
+        if not readings:
+            raise PanelDataUnavailableError(
+                EMPTY_PANEL_PAYLOAD_MESSAGE.format(target_date)
+            )
+        inserted = await _upsert_panel_readings(
+            session, system_id, target_date, readings
+        )
+        poll_log.status = "success"
+        poll_log.completed_at = datetime.now(tz=UTC)
+        poll_log.records_fetched = len(readings)
+        poll_log.records_inserted = inserted
+        await session.commit()
+        logger.info(
+            "Polled panels for {}: fetched={}, inserted={}",
+            target_date,
+            len(readings),
+            inserted,
+        )
+        return len(readings), inserted
+
+    except PanelDataUnavailableError as exc:
+        await _record_panel_failure(
+            session, system_id, started_at, target_date, "partial", str(exc)
+        )
+        raise
+    except (RuntimeError, httpx.HTTPStatusError) as exc:
+        await _record_panel_failure(
+            session, system_id, started_at, target_date, "error", str(exc)
+        )
+        logger.error("Panel poll failed for {}: {}", target_date, exc)
+        raise
+    except Exception as exc:
+        await _record_panel_failure(
+            session,
+            system_id,
+            started_at,
+            target_date,
+            "error",
+            f"Unexpected error: {exc}",
+        )
+        logger.error("Unexpected panel poll error for {}: {}", target_date, exc)
+        raise
 
 
 async def poll_irradiance(
