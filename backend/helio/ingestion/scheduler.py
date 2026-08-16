@@ -10,7 +10,11 @@ from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
 from helio.ingestion.enphase_client import PanelDataUnavailableError
-from helio.ingestion.irradiance_client import NASAClient, NRELClient
+from helio.ingestion.irradiance_client import (
+    IrradianceSourceError,
+    IrradianceUnavailableError,
+    build_irradiance_client,
+)
 from helio.ingestion.poller import (
     irradiance_location,
     poll_intervals,
@@ -73,35 +77,46 @@ async def run_daily_poll() -> None:
             logger.error("Unexpected panel poll error for {}: {}", yesterday, exc)
             failed_steps.append("panels")
 
-        irr_client: NRELClient | NASAClient
-        if settings.irradiance_source == "nrel":
-            irr_client = NRELClient(api_key=settings.nrel_api_key)
-        else:
-            irr_client = NASAClient()
-
         location = irradiance_location(system)
-        if location is None:
+        try:
+            irr_client = build_irradiance_client(system.irradiance_source)
+        except IrradianceSourceError as exc:
+            logger.error("Irradiance skipped for {}: {}", yesterday, exc)
             failed_steps.append("irradiance")
         else:
-            try:
-                await poll_irradiance(
-                    session,
-                    irr_client,
-                    system.id,
-                    *location,
-                    float(system.tilt_angle_deg or 30),
-                    float(system.azimuth_deg or 180),
-                    yesterday,
-                    settings.irradiance_source,
-                )
-            except httpx.HTTPStatusError as exc:
-                logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+            if location is None:
                 failed_steps.append("irradiance")
-            except Exception as exc:
-                logger.error(
-                    "Unexpected irradiance poll error for {}: {}", yesterday, exc
-                )
-                failed_steps.append("irradiance")
+            # None means the source is 'manual': rows are entered by hand, so
+            # fetching nothing is the configured outcome, not a failure.
+            elif irr_client is not None:
+                try:
+                    await poll_irradiance(
+                        session,
+                        irr_client,
+                        system.id,
+                        *location,
+                        float(system.tilt_angle_deg or 30),
+                        float(system.azimuth_deg or 180),
+                        yesterday,
+                        system.irradiance_source,
+                    )
+                except IrradianceUnavailableError as exc:
+                    # No row is written, so the day stays a gap a later backfill
+                    # can fill once the source publishes the measurement.
+                    logger.warning(
+                        "No irradiance available for {}, left for backfill: {}",
+                        yesterday,
+                        exc,
+                    )
+                    failed_steps.append("irradiance")
+                except httpx.HTTPStatusError as exc:
+                    logger.error("Irradiance poll failed for {}: {}", yesterday, exc)
+                    failed_steps.append("irradiance")
+                except Exception as exc:
+                    logger.error(
+                        "Unexpected irradiance poll error for {}: {}", yesterday, exc
+                    )
+                    failed_steps.append("irradiance")
 
         try:
             await build_daily_summary(session, system.id, yesterday)
