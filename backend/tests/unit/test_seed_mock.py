@@ -9,12 +9,26 @@ from helio.db import seed_mock as seed_module
 from helio.db.seed_mock import (
     INTERVALS_PER_DAY,
     SOURCE,
+    RealDataError,
     _day_profile,
     _interval_rows,
     _interval_weights,
     _seasonal_factor,
     seed_mock,
 )
+
+
+def _session(unseeded: int = 0) -> AsyncMock:
+    """A session whose guard query reports `unseeded` pre-existing intervals.
+
+    execute() is awaitable but the Result it yields is not, so the result has to
+    be a plain MagicMock or scalar_one() hands back a coroutine.
+    """
+    session = AsyncMock()
+    session.execute.return_value = MagicMock(
+        scalar_one=MagicMock(return_value=unseeded)
+    )
+    return session
 
 
 def _system(**overrides) -> MagicMock:
@@ -111,7 +125,7 @@ def no_rebuild(monkeypatch):
 
 
 async def test_seed_mock_writes_a_full_year_of_intervals(no_rebuild):
-    session = AsyncMock()
+    session = _session()
 
     intervals, irradiance = await seed_mock(session, _system(), years=1)
 
@@ -121,17 +135,18 @@ async def test_seed_mock_writes_a_full_year_of_intervals(no_rebuild):
 
 
 async def test_seed_mock_upserts_in_chunks_and_commits(no_rebuild):
-    session = AsyncMock()
+    session = _session()
 
     await seed_mock(session, _system(), years=1)
 
-    # 35040 interval rows at 2000 per chunk, plus one chunk of irradiance.
-    assert session.execute.await_count == 19
+    # The guard query, then 35040 interval rows at 2000 per chunk, then one
+    # chunk of irradiance.
+    assert session.execute.await_count == 20
     assert session.commit.await_count == 2
 
 
 async def test_seed_mock_tags_irradiance_with_the_mock_source(no_rebuild):
-    session = AsyncMock()
+    session = _session()
 
     await seed_mock(session, _system(), years=1)
 
@@ -142,9 +157,33 @@ async def test_seed_mock_tags_irradiance_with_the_mock_source(no_rebuild):
 
 async def test_seed_mock_stops_at_yesterday(no_rebuild):
     """Seeding today would produce a partial day that reads as a production drop."""
-    session = AsyncMock()
+    session = _session()
 
     await seed_mock(session, _system(), years=1)
 
     seeded_days = {row["day"] for row in session.execute.await_args_list[-1].args[1]}
     assert max(seeded_days) == date.today() - timedelta(days=1)
+
+
+async def test_seed_mock_refuses_a_database_holding_real_production_data(no_rebuild):
+    """AC4: real measurements are unrecoverable, so overwriting them is refused."""
+    session = _session(unseeded=4321)
+
+    with pytest.raises(RealDataError, match="4321"):
+        await seed_mock(session, _system(), years=1)
+
+    session.commit.assert_not_awaited()
+    no_rebuild.assert_not_awaited()
+
+
+async def test_seed_mock_counts_only_days_it_did_not_seed_itself(no_rebuild):
+    """AC3 needs reseeding to stay free, so mock-sourced days are excluded."""
+    session = _session()
+
+    await seed_mock(session, _system(), years=1)
+
+    guard_query = str(session.execute.await_args_list[0].args[0])
+    assert "count(*)" in guard_query
+    assert "FROM energy_intervals" in guard_query
+    assert "NOT IN (SELECT irradiance.day" in guard_query
+    assert "irradiance.source =" in guard_query

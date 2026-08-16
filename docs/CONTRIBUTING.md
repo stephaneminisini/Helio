@@ -34,6 +34,8 @@ make seed-mock
 
 This inserts 3 years of synthetic production data so you can develop against a realistic dataset without API access.
 
+Re-running it is safe: it overwrites the days it generated. It refuses to run, with exit code 3, against a database that already holds production intervals it did not write, because real measurements older than the Enphase retention window cannot be fetched again.
+
 ---
 
 ## Pull Request Guidelines
