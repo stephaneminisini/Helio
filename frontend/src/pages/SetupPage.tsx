@@ -33,6 +33,11 @@ function buildPayload(fd: FormData): SettingsPayload {
     tilt_angle_deg: text(fd, "tilt_angle_deg"),
     azimuth_deg: text(fd, "azimuth_deg"),
     degradation_rate: text(fd, "degradation_rate"),
+    warranty_degradation_rate: text(fd, "warranty_degradation_rate"),
+    energy_rate_per_kwh: text(fd, "energy_rate_per_kwh"),
+    // The API only accepts an uppercase ISO 4217 code, so "usd" is normalised
+    // here rather than coming back as a 422.
+    energy_rate_currency: text(fd, "energy_rate_currency")?.toUpperCase() ?? null,
     irradiance_source: text(fd, "irradiance_source"),
   };
 }
@@ -184,6 +189,34 @@ export function SetupPage() {
           data?.degradation_rate ?? null,
           "number"
         )}
+        {field(
+          "Warranty Threshold (%/yr)",
+          "warranty_degradation_rate",
+          data?.warranty_degradation_rate ?? null,
+          "number",
+          { min: 0, max: 99, step: "any", placeholder: "From your module warranty" }
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          {field(
+            "Energy Rate (per kWh)",
+            "energy_rate_per_kwh",
+            data?.energy_rate_per_kwh ?? null,
+            "number",
+            { min: 0, step: "any" }
+          )}
+          {field(
+            "Currency",
+            "energy_rate_currency",
+            data?.energy_rate_currency ?? null,
+            "text",
+            { maxLength: 3, placeholder: "USD" }
+          )}
+        </div>
+        <p className="text-xs text-gray-500">
+          The warranty threshold flags an annual drop steeper than your modules
+          are warranted for. The energy rate prices lost production on the
+          Efficiency page.
+        </p>
         <div className="flex flex-col gap-1">
           <label
             htmlFor="irradiance_source"

@@ -21,13 +21,20 @@ class AnnualRateEntry(BaseModel):
 
 
 class DegradationSummary(BaseModel):
-    """Aggregated degradation metrics across all years."""
+    """Aggregated degradation metrics across all years.
+
+    warranty_threshold and energy_rate_per_kwh are echoed back so the client can
+    show what the figures were computed against; lost_dollars is meaningless
+    without the rate that produced it.
+    """
 
     annual_rates: dict[int, AnnualRateEntry]
     lost_kwh: float
     lost_dollars: float
     warranty_threshold: float
     exceeds_warranty: bool
+    energy_rate_per_kwh: float
+    energy_rate_currency: str
 
 
 class EfficiencyResponse(BaseModel):

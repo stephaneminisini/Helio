@@ -35,10 +35,8 @@ async def test_calculate_annual_degradation_two_years():
     assert result[2023]["avg_pr"] == pytest.approx(0.82, rel=1e-3)
 
 
-@pytest.mark.asyncio
-async def test_estimate_lost_production_returns_kwh_and_dollars():
-    mock_session = AsyncMock()
-
+def _session_with_one_shortfall_month() -> AsyncMock:
+    """A session whose only month produced below its expected PR."""
     monthly_rows = [
         MagicMock(
             month=date(2024, 4, 1),
@@ -47,18 +45,35 @@ async def test_estimate_lost_production_returns_kwh_and_dollars():
             expected_pr=Decimal("0.82"),
         )
     ]
-
-    mock_session.execute = AsyncMock(
+    session = AsyncMock()
+    session.execute = AsyncMock(
         return_value=MagicMock(
             scalars=MagicMock(
                 return_value=MagicMock(all=MagicMock(return_value=monthly_rows))
             )
         )
     )
+    return session
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rate", [0.15, 0.42])
+async def test_estimate_lost_production_prices_at_the_given_rate(rate):
+    """AC3: lost_dollars is lost_kwh times the configured rate, nothing hidden."""
     result = await estimate_lost_production(
-        mock_session, system_id=1, rate_per_kwh=0.15
+        _session_with_one_shortfall_month(), system_id=1, rate_per_kwh=rate
     )
+
     assert result["lost_kwh"] > 0
-    assert result["lost_dollars"] > 0
-    assert result["lost_dollars"] == pytest.approx(result["lost_kwh"] * 0.15, abs=0.01)
+    assert result["lost_dollars"] == pytest.approx(result["lost_kwh"] * rate, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_estimate_lost_production_at_a_zero_rate_costs_nothing():
+    """A zero tariff is legitimate: the kWh shortfall stands, the price is 0."""
+    result = await estimate_lost_production(
+        _session_with_one_shortfall_month(), system_id=1, rate_per_kwh=0.0
+    )
+
+    assert result["lost_kwh"] > 0
+    assert result["lost_dollars"] == 0.0
