@@ -47,8 +47,7 @@ Click on the **api** service, then **Variables**, and add:
 | `ENPHASE_CLIENT_SECRET` | Your Enphase Client Secret |
 | `ENPHASE_SYSTEM_ID` | Your Enphase System ID |
 | `FERNET_KEY` | Generated Fernet key |
-| `NREL_API_KEY` | Your NREL API key |
-| `IRRADIANCE_SOURCE` | `nrel` |
+| `IRRADIANCE_SOURCE` | `nasa` |
 | `TZ` | e.g. `America/Montreal` |
 | `POLL_HOUR` | `4` |
 
