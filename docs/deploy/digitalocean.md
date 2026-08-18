@@ -83,15 +83,32 @@ For personal use the **Basic** app plan works well:
 2. DigitalOcean will build and deploy the app (5–10 minutes on first deploy)
 3. Once deployed, click the app URL to open your dashboard
 
-### Step 7 — Authorize Enphase & Backfill
+### Step 7 — Create the database schema
+
+1. In the DigitalOcean dashboard, open a **Console** session on the app component
+2. Run:
+   ```bash
+   alembic upgrade head
+   ```
+
+The container runs `uvicorn` and nothing else, so migrations are a separate step.
+Skip it and every endpoint answers 500, because the tables it queries do not
+exist yet. Run it again after each deploy that ships a new migration.
+
+> The Makefile is a convenience for local checkouts and is not in the image, so
+> `make` targets do not work in the console. The commands below are what those
+> targets run inside the container.
+
+### Step 8 — Authorize Enphase & Backfill
 
 1. Open your app URL and go to the **Setup** tab
-2. Click **Connect Enphase Account** and authorize via Enphase login
-3. In the DigitalOcean console, open a **Console** session to your app and run:
+2. Fill in the form and click **Create System** — the Enphase System ID and the install date are required
+3. Click **Connect to Enphase** and authorize via Enphase login
+4. Back in the app **Console**, run:
    ```bash
-   make backfill
+   python -m helio.cli backfill
    ```
-4. Wait for the backfill to complete, then refresh the dashboard
+5. Wait for the backfill to complete, then refresh the dashboard
 
 ---
 

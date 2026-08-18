@@ -59,9 +59,18 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 ### Step 5 — Deploy
 
 1. Click **Deploy** — Railway builds and deploys in 3–5 minutes
-2. Click the generated `.railway.app` URL to open your dashboard
-3. Go to **Setup**, connect your Enphase account
-4. Open a Railway shell session and run `make backfill`
+2. Open a shell session on the **api** service and run `alembic upgrade head` to
+   create the schema. The container runs `uvicorn` and nothing else, so this is a
+   separate step; skip it and every endpoint answers 500 because the tables it
+   queries do not exist yet. Repeat it after any deploy that ships a migration
+3. Click the generated `.railway.app` URL to open your dashboard
+4. Go to **Setup**, fill in the form and click **Create System**, then click
+   **Connect to Enphase** and authorize
+5. Back in the shell session, run `python -m helio.cli backfill`
+
+> The Makefile is a convenience for local checkouts and is not in the image, so
+> `make` targets do not work in a Railway shell. The commands above are what
+> those targets run inside the container.
 
 ---
 

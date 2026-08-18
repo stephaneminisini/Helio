@@ -131,9 +131,20 @@ Paste the output as your `FERNET_KEY` value.
 make up
 ```
 
-This pulls and builds all Docker images, starts PostgreSQL, runs database migrations automatically, and starts the API server and frontend.
+This pulls and builds all Docker images, starts PostgreSQL, and starts the API server and frontend.
 
 On first run this takes 2–4 minutes. Subsequent starts take a few seconds.
+
+### Create the database schema
+
+```bash
+make migrate
+```
+
+The API image starts `uvicorn` and nothing else, so migrations are a separate
+step. Skip it and every endpoint answers 500, because the tables it queries do
+not exist yet. Run it again after each `git pull`; it is a no-op when the schema
+is already current.
 
 ### Verify everything is running
 
@@ -153,16 +164,23 @@ Watch logs from all services. Press `Ctrl+C` to exit.
 
 ## Authorize Enphase
 
-Before data can be collected, you need to authorize Helio Monitor to access your Enphase account.
+Before data can be collected, you need to describe your array and authorize Helio
+Monitor to access your Enphase account.
 
 1. Open the dashboard at [http://localhost:3000](http://localhost:3000)
-2. Go to the **Setup** tab
-3. Your Client ID and System ID should already be populated from `.env`
-4. Click **Connect Enphase Account**
+2. Go to the **Setup** tab, which opens on **Welcome to Helio** while no system exists
+3. Fill in the form and click **Create System**. The Enphase System ID and the
+   install date are required; latitude and longitude are what irradiance
+   collection needs, and without them Performance Ratio stays unavailable. Your
+   Client ID and Secret are not asked for here — they stay server-side in `.env`
+4. Click **Connect to Enphase**
 5. You will be redirected to the Enphase login page
 6. Log in with your Enlighten account and click **Authorize**
 7. You will be redirected back to Helio Monitor
 8. The status indicator will change to **Connected**
+
+The **Connect to Enphase** panel only appears once the system row exists, since
+the callback needs somewhere to attach the tokens.
 
 ---
 

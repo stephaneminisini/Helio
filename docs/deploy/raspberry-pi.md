@@ -86,11 +86,22 @@ make up
 
 First run pulls Docker images and may take 5–10 minutes on a Pi. Subsequent starts are fast.
 
-### Step 4 — Authorize and Backfill
+### Step 4 — Create the database schema
+
+```bash
+make migrate
+```
+
+The API container starts `uvicorn` and nothing else, so this is a separate step.
+Skip it and every endpoint answers 500, because the tables it queries do not
+exist yet.
+
+### Step 5 — Authorize and Backfill
 
 ```bash
 # Open dashboard in browser at http://<your-pi-ip>:3000
-# Go to Setup tab → Connect Enphase Account → Authorize
+# Go to Setup tab, fill in the form, click Create System
+# Then click Connect to Enphase and authorize
 
 # Then run the backfill
 make backfill
