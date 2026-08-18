@@ -53,7 +53,7 @@ In the **Environment Variables** section, add the following:
 
 **Generate a Fernet key** on your local machine:
 ```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 > Mark sensitive variables as **Encrypted** — DigitalOcean stores them as secrets and never displays them again.
