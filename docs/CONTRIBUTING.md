@@ -16,8 +16,8 @@ Thank you for your interest in contributing! Helio Monitor is a personal project
 ## Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/helio-monitor.git
-cd helio-monitor
+git clone https://github.com/stephaneminisini/Helio.git
+cd Helio
 cp .env.example .env
 # Fill in .env with test credentials or use the mock mode (see below)
 make up
