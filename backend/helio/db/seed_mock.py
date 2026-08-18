@@ -113,16 +113,38 @@ def _day_profile(
     return poa, production_kwh, _interval_weights(9 + 6 * seasonal)
 
 
+def _elapsed_intervals(now: datetime) -> int:
+    """Count the intervals of `now`'s own day that have already finished.
+
+    Args:
+        now: The current instant, timezone-aware.
+
+    Returns:
+        How many whole INTERVAL_SECONDS windows have closed since midnight, so
+        0 at midnight and INTERVALS_PER_DAY at the end of the day.
+    """
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int((now - midnight).total_seconds() // INTERVAL_SECONDS)
+
+
 def _interval_rows(
-    system_id: int, day: date, kwh: float, weights: list[float]
+    system_id: int,
+    day: date,
+    kwh: float,
+    weights: list[float],
+    limit: int | None = None,
 ) -> list[dict]:
-    """Build the 96 energy_intervals rows for one day.
+    """Build the energy_intervals rows for one day.
 
     Args:
         system_id: Owning system.
         day: The day to generate.
         kwh: Total production for the day in kilowatt-hours.
         weights: Per-interval share of the daily total.
+        limit: Stop after this many intervals, for a day still in progress. The
+            weights are not renormalised, so a truncated day carries only the
+            energy that had actually been produced by the cutoff, which is what
+            a live install would have recorded.
 
     Returns:
         Rows ready for a bulk insert.
@@ -135,7 +157,7 @@ def _interval_rows(
             "duration_seconds": INTERVAL_SECONDS,
             "production_wh": round(kwh * 1000 * weight, 3),
         }
-        for index, weight in enumerate(weights)
+        for index, weight in enumerate(weights[:limit])
     ]
 
 
@@ -206,10 +228,16 @@ async def seed_mock(
     re-run. Summaries are rebuilt at the end so the dashboard has something to
     read immediately.
 
+    Today is included, truncated at the last interval to have closed, so the
+    Overview opens on a figure that grows through the day like a live install's
+    rather than on a zero. Re-running later in the day tops the day up: the
+    upsert is keyed on the interval start, so the intervals already written are
+    rewritten with the same values and the newly elapsed ones are added.
+
     Args:
         session: Active async database session.
         system: The configured system to attach the data to.
-        years: How many years back from yesterday to generate.
+        years: How many years back from today to generate.
         seed: Seed for the cloud-cover noise, for reproducible data.
 
     Returns:
@@ -223,8 +251,11 @@ async def seed_mock(
     if unseeded:
         raise RealDataError(REAL_DATA_MESSAGE.format(unseeded))
 
-    end = date.today() - timedelta(days=1)
+    now = datetime.now(UTC)
+    end = now.date()
     start = end - timedelta(days=round(years * 365.25) - 1)
+    # Today's own intervals stop at the cutoff; every prior day is whole.
+    today_intervals = _elapsed_intervals(now)
     rng = random.Random(seed)
     logger.info("Seeding mock data for system={} from {} to {}", system.id, start, end)
 
@@ -233,14 +264,22 @@ async def seed_mock(
     day = start
     while day <= end:
         poa, production_kwh, weights = _day_profile(day, system, rng)
-        intervals.extend(_interval_rows(system.id, day, production_kwh, weights))
+        limit = today_intervals if day == end else None
+        intervals.extend(_interval_rows(system.id, day, production_kwh, weights, limit))
+        # A part-day's irradiance has to cover the same window as its production,
+        # or the monthly performance ratio divides part of a day's output by all
+        # of its sunlight and reads as a real efficiency drop. The weights are
+        # the day's energy distribution, so their partial sum is the fraction of
+        # the day's sunlight that has arrived.
+        elapsed = sum(weights[:limit]) if limit is not None else 1.0
+        day_poa = poa * elapsed
         irradiance.append(
             {
                 "system_id": system.id,
                 "day": day,
-                "ghi_kwh_m2": round(poa / 1.1, 4),
-                "dni_kwh_m2": round(poa / 1.1 * 0.85, 4),
-                "poa_kwh_m2": round(poa, 4),
+                "ghi_kwh_m2": round(day_poa / 1.1, 4),
+                "dni_kwh_m2": round(day_poa / 1.1 * 0.85, 4),
+                "poa_kwh_m2": round(day_poa, 4),
                 "source": SOURCE,
             }
         )
