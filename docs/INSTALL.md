@@ -97,7 +97,7 @@ ENPHASE_CLIENT_SECRET=your_client_secret_here
 ENPHASE_SYSTEM_ID=your_system_id_here
 
 # ── Encryption ────────────────────────────────────────────────────
-# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate with: make generate-fernet-key
 FERNET_KEY=your_generated_fernet_key_here
 
 # ── Weather / Irradiance ──────────────────────────────────────────
@@ -114,10 +114,10 @@ HELIO_PORT=3000
 ### Step 4 — Generate a Fernet key
 
 ```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+make generate-fernet-key
 ```
 
-Paste the output as your `FERNET_KEY` value.
+Paste the output as your `FERNET_KEY` value. The key is generated with `openssl`, so nothing has to be installed on the host beyond Docker and Make.
 
 > ⚠️ Keep your `.env` file private. It is listed in `.gitignore` and will never be committed.
 

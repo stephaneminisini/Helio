@@ -53,7 +53,7 @@ Click on the **api** service, then **Variables**, and add:
 
 Generate your Fernet key locally:
 ```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 ### Step 5 — Deploy

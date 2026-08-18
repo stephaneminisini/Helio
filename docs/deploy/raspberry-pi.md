@@ -75,7 +75,7 @@ Port 3000 serves the dashboard and proxies `/api` to the API, so it is the only 
 
 Generate your Fernet key:
 ```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+make generate-fernet-key
 ```
 
 ### Step 3 — Start

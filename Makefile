@@ -235,16 +235,16 @@ disable-autostart: ## Remove systemd autostart service
 
 .PHONY: generate-fernet-key
 generate-fernet-key: ## Generate a new Fernet encryption key for .env
-	@python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+	@./scripts/generate-fernet-key.sh
 
 # ── Setup Helpers ─────────────────────────────────────────────────────────────
 
 .PHONY: init
 init: ## First-time setup: copy .env.example, generate key, start, migrate
 	@if [ ! -f .env ]; then \
+		FERNET=$$(./scripts/generate-fernet-key.sh) || exit 1; \
 		cp .env.example .env; \
 		echo "📝  Created .env from .env.example"; \
-		FERNET=$$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"); \
 		sed -i.bak "s|^FERNET_KEY=.*|FERNET_KEY=$$FERNET|" .env && rm -f .env.bak; \
 		echo "🔑  Generated and set FERNET_KEY in .env"; \
 		echo ""; \
