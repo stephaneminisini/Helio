@@ -1,15 +1,28 @@
-from datetime import date
+from datetime import date, datetime, time
 
 import pytest
 
 from helio.core.dates import (
     month_to_date,
+    now_local,
     same_day_in_year,
     same_day_last_month,
     same_day_last_year,
+    today,
     whole_month,
     whole_year,
 )
+
+
+def test_now_local_agrees_with_today():
+    """The overview subtracts one from the other to find how far today has got.
+
+    Two clocks in different timezones would make that difference negative before
+    the offset has passed, and the day comparison would read the wrong window.
+    """
+    elapsed = now_local() - datetime.combine(today(), time.min)
+
+    assert 0 <= elapsed.total_seconds() < 24 * 3600
 
 
 @pytest.mark.parametrize(

@@ -60,13 +60,13 @@ export function OverviewPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ComparisonBar
-          label="Today vs same day last year"
+          label="Today so far vs same day last year"
           current={data.day_comparison.current_kwh}
           prior={data.day_comparison.prior_kwh}
           pctChange={data.day_comparison.pct_change}
         />
         <ComparisonBar
-          label="Today vs same day last month"
+          label="Today so far vs same day last month"
           current={data.day_vs_last_month.current_kwh}
           prior={data.day_vs_last_month.prior_kwh}
           pctChange={data.day_vs_last_month.pct_change}
@@ -91,8 +91,10 @@ export function OverviewPage() {
       />
 
       <p className="text-xs text-gray-500">
-        Month and year comparisons stop at the same day of the prior period, so a
-        partial period is never measured against a whole one.
+        Every comparison stops at the same point in the prior period, so a
+        partial period is never measured against a whole one. Day comparisons cut
+        the prior day at the current time; month and year comparisons stop at the
+        same day of the prior period.
       </p>
     </div>
   );

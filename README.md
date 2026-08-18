@@ -12,7 +12,7 @@ Helio Monitor connects to your Enphase system and gives you the historical compa
 
 ## What It Does
 
-- **Historical comparisons** — Today vs. same day last year, this month vs. same month last year, YTD vs. prior year
+- **Historical comparisons** — Today so far vs. the same point in the same day last year, this month vs. same month last year, YTD vs. prior year
 - **Efficiency tracking** — Performance Ratio trend since install, weather-normalized
 - **Degradation alerts** — Flags when annual degradation exceeds your warranty threshold
 - **Panel heatmap** — Spot underperforming microinverters at a glance

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -8,12 +8,13 @@ from helio.api.schemas.overview import ComparisonPair, OverviewResponse, YtdPoin
 from helio.core.comparisons import pct_change
 from helio.core.dates import (
     month_to_date,
+    now_local,
     same_day_in_year,
     same_day_last_month,
     same_day_last_year,
     today,
 )
-from helio.db.models import DailySummary, System
+from helio.db.models import DailySummary, EnergyInterval, System
 from helio.db.session import get_db
 from helio.ingestion.live_power import get_live_power
 
@@ -98,6 +99,8 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
     anchor = today()
     day_last_month = same_day_last_month(anchor)
     day_last_year = same_day_last_year(anchor)
+    # Where today has got to, so a prior day can be cut at the same point.
+    elapsed = now_local() - datetime.combine(anchor, time.min)
 
     async def get_day_kwh(d: date) -> float | None:
         row = (
@@ -109,6 +112,40 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
             )
         ).scalar_one_or_none()
         return float(row.production_kwh or 0) if row else None
+
+    async def get_day_kwh_to_now(d: date) -> float | None:
+        """Sum a prior day's production up to the time of day it is now.
+
+        Today is only ever part of a day, so measuring it against a whole prior
+        day reports a shortfall that is really just the hours yet to come: a
+        healthy system reads -85 percent at 9am and -100 percent before dawn.
+        Cutting the prior day at the same point is what the month and year cards
+        already do via month_to_date, applied to the day card.
+
+        Args:
+            d: The prior day to measure.
+
+        Returns:
+            Production in kWh from that day's midnight up to the elapsed offset,
+            or None when the day stored no intervals at all, which has to stay
+            distinct from a real zero.
+        """
+        start = datetime.combine(d, time.min)
+        total = (
+            await db.execute(
+                select(func.sum(EnergyInterval.production_wh)).where(
+                    EnergyInterval.system_id == system.id,
+                    EnergyInterval.interval_start >= start,
+                    EnergyInterval.interval_start < start + elapsed,
+                )
+            )
+        ).scalar()
+        if total is None:
+            # Distinguish "this day is not in the database" from "this day had
+            # produced nothing by this hour", which is every night.
+            whole_day = await get_day_kwh(d)
+            return None if whole_day is None else 0.0
+        return float(total) / 1000
 
     async def get_period_kwh(start: date, end: date) -> float | None:
         """Sum production over an inclusive window, or None when it has no data.
@@ -128,8 +165,10 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
 
     # SQLAlchemy AsyncSession is not safe for concurrent use; queries run sequentially
     today_kwh_raw = await get_day_kwh(anchor)
-    last_month_day_kwh = await get_day_kwh(day_last_month)
-    last_year_day_kwh = await get_day_kwh(day_last_year)
+    # Both day comparisons stop where today stops, for the same reason the month
+    # and year ones stop at the same day of the prior period.
+    last_month_day_kwh = await get_day_kwh_to_now(day_last_month)
+    last_year_day_kwh = await get_day_kwh_to_now(day_last_year)
     # Every prior period stops at the equivalent day of the month, so a
     # month-to-date figure is never compared against a full month it cannot
     # have caught up with yet.
