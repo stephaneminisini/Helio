@@ -267,6 +267,23 @@ async def test_seed_mock_keeps_todays_implied_pr_equal_to_a_whole_days(
     assert today_pr == pytest.approx(yesterday_pr, rel=1e-3)
 
 
+async def test_seed_mock_tops_up_a_partial_day_rather_than_duplicating_it(
+    no_rebuild, midday
+):
+    """AC3: a second run later in the day must complete today, not double it.
+
+    Every interval is keyed on its own start, so re-running rewrites the ones
+    already stored with the same values and inserts only the newly elapsed ones.
+    """
+    session = _session()
+
+    await seed_mock(session, _system(), years=1)
+
+    interval_upsert = str(session.execute.await_args_list[1].args[0])
+    assert "ON CONFLICT (system_id, interval_start) DO UPDATE" in interval_upsert
+    assert "production_wh" in interval_upsert.split("DO UPDATE")[1]
+
+
 async def test_seed_mock_refuses_a_database_holding_real_production_data(no_rebuild):
     """AC4: real measurements are unrecoverable, so overwriting them is refused."""
     session = _session(unseeded=4321)
