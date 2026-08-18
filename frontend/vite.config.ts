@@ -4,9 +4,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // The dev server stands in for the nginx proxy the production image runs,
+    // so the app is served from one origin either way. This target is where the
+    // API listens on the host, not a URL the browser ever sees.
     proxy: {
       "/api": {
-        target: process.env.VITE_API_BASE_URL ?? "http://localhost:8000",
+        target: process.env.HELIO_API_PROXY_TARGET ?? "http://localhost:8000",
         changeOrigin: true,
       },
     },

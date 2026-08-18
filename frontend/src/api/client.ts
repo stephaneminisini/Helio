@@ -1,5 +1,3 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
-
 export interface ComparisonPair {
   current_kwh: number;
   prior_kwh: number | null;
@@ -145,8 +143,9 @@ export class ApiError extends Error {
   }
 }
 
+/** Calls are relative on purpose: the origin serving the app also serves /api. */
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });

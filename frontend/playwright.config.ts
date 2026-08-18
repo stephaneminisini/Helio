@@ -28,8 +28,8 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     // The dev server proxies /api to the backend, so the browser talks to a
-    // single origin and CORS never enters the picture. VITE_API_BASE_URL has to
-    // stay unset for that: setting it points the browser at the API directly.
+    // single origin and CORS never enters the picture. Point the proxy elsewhere
+    // with HELIO_API_PROXY_TARGET if the API is not on localhost:8000.
     command: "npm run dev -- --port 5173 --strictPort",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

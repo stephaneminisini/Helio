@@ -5,8 +5,9 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-ARG VITE_API_BASE_URL=http://localhost:8000
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# No API URL is baked in: the app calls /api on whatever origin serves it, and
+# the nginx stage below proxies that to the api service. One image works at any
+# host and port.
 RUN npm run build
 
 FROM nginx:alpine

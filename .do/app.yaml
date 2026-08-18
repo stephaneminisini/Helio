@@ -41,6 +41,14 @@ services:
       - key: POLL_HOUR
         scope: RUN_TIME
         value: "4"
+      # Both point at the app's own URL: the ingress rules below put the API and
+      # the dashboard on one origin, so the OAuth round trip never leaves it.
+      - key: ENPHASE_REDIRECT_URI
+        scope: RUN_TIME
+        value: ${APP_URL}/api/auth/enphase/callback
+      - key: FRONTEND_BASE_URL
+        scope: RUN_TIME
+        value: ${APP_URL}
 
   - name: frontend
     github:
@@ -51,10 +59,23 @@ services:
     http_port: 80
     instance_count: 1
     instance_size_slug: basic-xxs
-    envs:
-      - key: VITE_API_BASE_URL
-        scope: BUILD_TIME
-        value: ${api.PUBLIC_URL}
+
+# One origin, two components behind it. /api keeps its prefix because the API
+# routes are mounted under it; without preserve_path_prefix the platform strips
+# the match and every request arrives as a 404.
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /api
+      component:
+        name: api
+        preserve_path_prefix: true
+    - match:
+        path:
+          prefix: /
+      component:
+        name: frontend
 
 databases:
   - name: db
