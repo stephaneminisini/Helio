@@ -52,6 +52,9 @@ class System(Base):
         degradation_rate: Annual degradation rate in percent per year (default 0.5).
         warranty_degradation_rate: Manufacturer warranty threshold in percent per
             year; an annual drop above this is flagged (default 0.7).
+        baseline_pr: Performance Ratio the system is expected to achieve at
+            install, as a fraction. Null means it is measured from the system's
+            own first year instead.
         energy_rate_per_kwh: Electricity rate used to price lost production
             (default 0.15).
         energy_rate_currency: ISO 4217 code for energy_rate_per_kwh (default "USD").
@@ -94,6 +97,10 @@ class System(Base):
         default=DEFAULT_WARRANTY_DEGRADATION_RATE,
         server_default="0.700",
     )
+    # No default: an unreachable baseline is what this replaced, and no single
+    # value is right for every install, so null means "measure it from the
+    # system's own first year".
+    baseline_pr: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     energy_rate_per_kwh: Mapped[Decimal] = mapped_column(
         Numeric(8, 4), default=DEFAULT_ENERGY_RATE_PER_KWH, server_default="0.1500"
     )

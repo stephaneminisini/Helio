@@ -5,11 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from helio.analytics import summarizer
+from helio.analytics.degradation import estimate_lost_production
 from helio.analytics.summarizer import (
+    apply_expected_pr,
     build_daily_summary,
     build_monthly_summary,
     rebuild_all_summaries,
 )
+from helio.db.models import MonthlySummary, System
 
 
 def _session_returning_days(days: list[date]) -> AsyncMock:
@@ -29,8 +32,10 @@ async def test_rebuild_all_summaries_covers_every_day_and_month(monkeypatch):
     days = [date(2024, 4, 28), date(2024, 4, 29), date(2024, 5, 1)]
     daily = AsyncMock()
     monthly = AsyncMock()
+    expected = AsyncMock()
     monkeypatch.setattr(summarizer, "build_daily_summary", daily)
     monkeypatch.setattr(summarizer, "build_monthly_summary", monthly)
+    monkeypatch.setattr(summarizer, "apply_expected_pr", expected)
 
     result = await rebuild_all_summaries(_session_returning_days(days), MagicMock(id=1))
 
@@ -40,6 +45,9 @@ async def test_rebuild_all_summaries_covers_every_day_and_month(monkeypatch):
         date(2024, 4, 1),
         date(2024, 5, 1),
     ]
+    # Once for the whole series rather than once per month: the baseline needs
+    # every month to exist before anything can be expected of any of them.
+    expected.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -250,4 +258,179 @@ async def test_build_monthly_summary_updates_existing_row():
     assert result is existing_row
     assert existing_row.production_kwh == Decimal("40")
     assert existing_row.performance_ratio is not None
-    assert existing_row.is_anomaly is not None
+
+
+INSTALL_DATE = date(2020, 1, 1)
+DEGRADATION_RATE = 0.005
+TRUE_BASELINE = 0.82
+
+
+def _system_on_the_curve() -> MagicMock:
+    """A system with no configured baseline, degrading at DEGRADATION_RATE."""
+    system = MagicMock(spec=System)
+    system.id = 1
+    system.install_date = INSTALL_DATE
+    system.degradation_rate = Decimal(str(DEGRADATION_RATE * 100))
+    system.baseline_pr = None
+    return system
+
+
+def _healthy_months(count: int) -> list[MagicMock]:
+    """`count` monthly rows whose PR follows the configured curve exactly.
+
+    Built from the same (1 - rate) ** years shape the expected curve uses, and
+    rounded the way the summarizer stores it, so a test can assert that a system
+    tracking its own degradation is left alone.
+    """
+    rows = []
+    for offset in range(count):
+        month = date(INSTALL_DATE.year + offset // 12, offset % 12 + 1, 1)
+        elapsed = (month - INSTALL_DATE).days / 365.25
+        row = MagicMock(spec=MonthlySummary)
+        row.month = month
+        row.production_kwh = Decimal("900")
+        row.performance_ratio = Decimal(
+            str(round(TRUE_BASELINE * (1 - DEGRADATION_RATE) ** elapsed, 4))
+        )
+        row.expected_pr = None
+        row.is_anomaly = False
+        row.anomaly_reason = None
+        rows.append(row)
+    return rows
+
+
+def _series_session(rows: list[MagicMock], window: list[MagicMock] | None = None):
+    """A session answering both selects apply_expected_pr issues.
+
+    The baseline's first-year window carries a LIMIT and the full-series query
+    does not, so the two are told apart by the compiled statement. That lets a
+    test hand the baseline a clean year while the series under test also holds
+    the month being judged.
+    """
+    session = AsyncMock()
+
+    async def execute(stmt):
+        chosen = window if window is not None and "LIMIT" in str(stmt) else rows
+        return MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(all=MagicMock(return_value=chosen))
+            )
+        )
+
+    session.execute = execute
+    session.commit = AsyncMock()
+    return session
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_flags_nothing_on_a_system_tracking_its_curve():
+    """AC1: a system degrading exactly as configured is not an anomaly, ever.
+
+    This is the whole bug: against a baseline of 1.0 every one of these months
+    was flagged, because a real array never converts all of its irradiance.
+    """
+    rows = _healthy_months(24)
+
+    flagged = await apply_expected_pr(_series_session(rows), _system_on_the_curve())
+
+    assert flagged == 0
+    assert not any(row.is_anomaly for row in rows)
+    assert all(row.anomaly_reason is None for row in rows)
+    # The baseline is the system's own output, so expected lands on the measured
+    # ratio rather than a point twenty percent above it.
+    for row in rows:
+        assert float(row.expected_pr) == pytest.approx(
+            float(row.performance_ratio), abs=0.002
+        )
+
+
+@pytest.mark.asyncio
+async def test_lost_production_is_negligible_on_a_system_tracking_its_curve():
+    """AC2: the dollar figure follows the flags, so it has to collapse too."""
+    rows = _healthy_months(24)
+    session = _series_session(rows)
+    await apply_expected_pr(session, _system_on_the_curve())
+
+    lost = await estimate_lost_production(session, system_id=1, rate_per_kwh=0.15)
+
+    # 24 months at 900 kWh is 21600 kWh of production; anything the rounding
+    # leaves behind is a rounding artefact, not a loss worth pricing.
+    assert lost["lost_kwh"] < 21600 * 0.001
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_still_flags_a_month_below_the_measured_trend():
+    """AC3: #18's flag has to keep firing on a month that really did fall short."""
+    window = _healthy_months(12)
+    bad = MagicMock(spec=MonthlySummary)
+    bad.month = date(2021, 1, 1)
+    bad.production_kwh = Decimal("900")
+    bad.performance_ratio = Decimal("0.7400")
+    bad.expected_pr = None
+    bad.is_anomaly = False
+    bad.anomaly_reason = None
+
+    flagged = await apply_expected_pr(
+        _series_session([*window, bad], window=window), _system_on_the_curve()
+    )
+
+    assert flagged == 1
+    assert bad.is_anomaly is True
+    assert "below expected" in bad.anomaly_reason
+    assert not any(row.is_anomaly for row in window)
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_expects_nothing_below_a_full_year():
+    """AC4: the documented no-baseline case, rather than an invented standard."""
+    rows = _healthy_months(11)
+
+    flagged = await apply_expected_pr(_series_session(rows), _system_on_the_curve())
+
+    assert flagged == 0
+    assert all(row.expected_pr is None for row in rows)
+    assert all(row.is_anomaly is False for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_clears_a_flag_a_previous_run_left_behind():
+    """A rebuild has to be able to unflag: the old baseline flagged everything."""
+    rows = _healthy_months(12)
+    for row in rows:
+        row.is_anomaly = True
+        row.anomaly_reason = "PR 82.0% is 18.0% below expected 100.0%"
+
+    flagged = await apply_expected_pr(_series_session(rows), _system_on_the_curve())
+
+    assert flagged == 0
+    assert all(row.anomaly_reason is None for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_expects_a_month_that_has_no_ratio_of_its_own():
+    """A month with no irradiance still has a standard; it just cannot be judged."""
+    window = _healthy_months(12)
+    dark = _healthy_months(13)[-1]
+    # The baseline query skips months without a ratio, so this one is outside the
+    # window rather than in it.
+    dark.performance_ratio = None
+
+    flagged = await apply_expected_pr(
+        _series_session([*window, dark], window=window), _system_on_the_curve()
+    )
+
+    assert flagged == 0
+    assert dark.expected_pr is not None
+    assert dark.is_anomaly is False
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_uses_a_configured_baseline_over_the_history():
+    """A commissioning figure the system never reaches flags every month."""
+    rows = _healthy_months(12)
+    system = _system_on_the_curve()
+    system.baseline_pr = Decimal("0.9500")
+
+    flagged = await apply_expected_pr(_series_session(rows), system)
+
+    assert flagged == len(rows)

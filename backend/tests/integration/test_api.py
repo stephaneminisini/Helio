@@ -305,6 +305,8 @@ async def test_post_settings_422_when_required_field_missing(payload, expected_f
         ("energy_rate_per_kwh", "10000"),
         ("energy_rate_currency", "usd"),
         ("energy_rate_currency", "DOLLARS"),
+        ("baseline_pr", "0"),
+        ("baseline_pr", "1.01"),
         ("irradiance_source", "totally-made-up"),
     ],
 )
@@ -358,6 +360,7 @@ async def test_get_settings_returns_values_persisted_by_post():
         "warranty_degradation_rate": "0.600",
         "energy_rate_per_kwh": "0.2350",
         "energy_rate_currency": "EUR",
+        "baseline_pr": "0.8200",
         "irradiance_source": "nasa",
     }
 
@@ -392,6 +395,7 @@ def _configured_system() -> MagicMock:
     system.warranty_degradation_rate = Decimal("0.7")
     system.energy_rate_per_kwh = Decimal("0.15")
     system.energy_rate_currency = "USD"
+    system.baseline_pr = None
     system.irradiance_source = "nasa"
     return system
 
@@ -484,6 +488,7 @@ async def test_put_settings_updates_system():
     mock_system.warranty_degradation_rate = Decimal("0.7")
     mock_system.energy_rate_per_kwh = Decimal("0.15")
     mock_system.energy_rate_currency = "USD"
+    mock_system.baseline_pr = None
     mock_system.irradiance_source = "nasa"
 
     async def mock_execute(stmt):
@@ -544,3 +549,75 @@ async def test_get_settings_reports_enphase_connection_state(
 
     assert response.status_code == 200
     assert response.json()["enphase_connected"] is connected
+
+
+@pytest.mark.asyncio
+async def test_put_settings_saves_the_baseline_pr_override():
+    """The commissioning figure has to be settable from the Setup form."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"baseline_pr": "0.8300"},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200
+    assert system.baseline_pr == Decimal("0.8300")
+
+
+@pytest.mark.asyncio
+async def test_put_settings_clears_the_baseline_pr_override():
+    """Null means "measure it", so an override the owner cannot undo is a trap."""
+    system = _configured_system()
+    system.baseline_pr = Decimal("0.8300")
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"baseline_pr": None},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200
+    assert system.baseline_pr is None
+
+
+@pytest.mark.asyncio
+async def test_put_settings_ignores_a_null_on_a_column_with_a_default():
+    """A NOT NULL column must survive a client that sends its field as null."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"degradation_rate": None, "energy_rate_currency": None},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200
+    assert system.degradation_rate == Decimal("0.5")
+    assert system.energy_rate_currency == "USD"
+
+
+@pytest.mark.asyncio
+async def test_put_settings_leaves_untouched_fields_alone():
+    """A partial update is a partial update: absent means unchanged."""
+    system = _configured_system()
+    session = _mock_session(existing=system)
+
+    async with _client_with_db(session) as client:
+        response = await client.put(
+            "/api/settings",
+            json={"name": "New Name"},
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 200
+    assert system.name == "New Name"
+    assert system.location == "Portland, OR"
+    assert system.baseline_pr is None

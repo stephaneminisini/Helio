@@ -23,6 +23,7 @@ const SYSTEM: SystemSettings = {
   warranty_degradation_rate: "0.700",
   energy_rate_per_kwh: "0.1500",
   energy_rate_currency: "USD",
+  baseline_pr: null,
   irradiance_source: "nasa",
   enphase_connected: false,
 };
@@ -176,6 +177,7 @@ describe("SetupPage", () => {
       "Tilt Angle (deg)": "22.5",
       "Azimuth (deg)": "187.5",
       "Degradation Rate (%/yr)": "0.45",
+      "Baseline PR": "0.815",
     };
     for (const [label, value] of Object.entries(decimals)) {
       const input = screen.getByLabelText(label) as HTMLInputElement;
@@ -191,7 +193,30 @@ describe("SetupPage", () => {
       tilt_angle_deg: "22.5",
       azimuth_deg: "187.5",
       degradation_rate: "0.45",
+      baseline_pr: "0.815",
     });
+  });
+
+  it("clears the baseline override when the field is emptied", async () => {
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: [
+        response(200, { ...SYSTEM, baseline_pr: "0.8300" }),
+        response(200, SYSTEM),
+      ],
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
+    render(<SetupPage />);
+    await screen.findByRole("button", { name: "Save Settings" });
+
+    const input = screen.getByLabelText("Baseline PR") as HTMLInputElement;
+    expect(input.value).toBe("0.8300");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+
+    await waitFor(() => expect(callsTo(fetchMock, SETTINGS_PATH)).toHaveLength(2));
+    // Null rather than absent: the API reads it as "go back to measuring the
+    // baseline from the first year".
+    expect(jsonBody(callsTo(fetchMock, SETTINGS_PATH)[1]).baseline_pr).toBeNull();
   });
 
   it("still shows an error state for a real API failure", async () => {

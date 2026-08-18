@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -32,6 +33,12 @@ class DegradationSummary(BaseModel):
     warranty_threshold and energy_rate_per_kwh are echoed back so the client can
     show what the figures were computed against; lost_dollars is meaningless
     without the rate that produced it.
+
+    So is the baseline: both the anomaly flags and the lost-production figure are
+    measured against it, so baseline_pr and baseline_source say what standard was
+    used. baseline_pr is null, and baseline_source "none", when the system has
+    neither a configured baseline nor a full year of history, in which case
+    nothing is flagged and nothing is counted as lost.
     """
 
     annual_rates: dict[int, AnnualRateEntry]
@@ -41,6 +48,8 @@ class DegradationSummary(BaseModel):
     exceeds_warranty: bool
     energy_rate_per_kwh: float
     energy_rate_currency: str
+    baseline_pr: float | None
+    baseline_source: Literal["configured", "measured", "none"]
 
 
 class ProjectedYear(BaseModel):

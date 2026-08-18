@@ -66,6 +66,7 @@ def _system(
     warranty: str = "0.7",
     rate: str = "0.15",
     currency: str = "USD",
+    baseline: str | None = None,
 ) -> MagicMock:
     system = MagicMock(spec=System)
     system.id = 1
@@ -75,6 +76,10 @@ def _system(
     system.warranty_degradation_rate = Decimal(warranty)
     system.energy_rate_per_kwh = Decimal(rate)
     system.energy_rate_currency = currency
+    system.degradation_rate = Decimal("0.5")
+    # Explicitly null unless a test configures one: spec'd mocks answer every
+    # attribute, so leaving it unset would look like a configured override.
+    system.baseline_pr = Decimal(baseline) if baseline else None
     return system
 
 
@@ -260,4 +265,55 @@ async def test_efficiency_reports_the_documented_defaults_with_no_system():
     assert degradation["energy_rate_per_kwh"] == pytest.approx(0.15)
     assert degradation["energy_rate_currency"] == "USD"
     assert degradation["exceeds_warranty"] is False
+    assert degradation["baseline_pr"] is None
+    assert degradation["baseline_source"] == "none"
     assert response.json()["projection"]["years"] == []
+
+
+@pytest.mark.asyncio
+async def test_efficiency_reports_a_configured_baseline_as_configured(
+    two_years_dropping, lost_production
+):
+    """The owner's commissioning figure is echoed back with its provenance."""
+    two_years_dropping(0.001)
+
+    async with _client_with_db(_session(_system(baseline="0.8600"))) as client:
+        response = await client.get("/api/efficiency")
+
+    degradation = response.json()["degradation"]
+    assert degradation["baseline_pr"] == pytest.approx(0.86)
+    assert degradation["baseline_source"] == "configured"
+
+
+@pytest.mark.asyncio
+async def test_efficiency_reports_a_derived_baseline_as_measured(
+    two_years_dropping, lost_production
+):
+    """A full year of history is enough to state a baseline the system earned."""
+    two_years_dropping(0.001)
+    history = [_pr_month(date(2023, month, 1), "0.8200") for month in range(1, 13)]
+
+    async with _client_with_db(_session(_system(), history)) as client:
+        response = await client.get("/api/efficiency")
+
+    degradation = response.json()["degradation"]
+    assert degradation["baseline_source"] == "measured"
+    # Above the measured 0.82: the window's average is walked back up the
+    # degradation curve to the install date, three and a half years earlier.
+    assert degradation["baseline_pr"] > 0.82
+
+
+@pytest.mark.asyncio
+async def test_efficiency_states_no_baseline_before_a_full_year(
+    two_years_dropping, lost_production
+):
+    """AC4: eleven months is not a standard, and the client is told so."""
+    two_years_dropping(0.001)
+    history = [_pr_month(date(2023, month, 1), "0.8200") for month in range(1, 12)]
+
+    async with _client_with_db(_session(_system(), history)) as client:
+        response = await client.get("/api/efficiency")
+
+    degradation = response.json()["degradation"]
+    assert degradation["baseline_pr"] is None
+    assert degradation["baseline_source"] == "none"

@@ -18,6 +18,12 @@ test("the Efficiency page renders the PR trend with both series", async ({
   );
   expect(await figure(statValue(page, "Warranty Threshold"))).toBeGreaterThan(0);
 
+  // The expected series below only exists because a baseline does, so the page
+  // has to state which one it used. The seeded history spans years, so it is
+  // measured from the system's own first year rather than configured.
+  expect(await figure(statValue(page, "Baseline PR"))).toBeGreaterThan(0);
+  await expect(page.getByText("Measured from the first year")).toBeVisible();
+
   const chart = page.locator(".recharts-wrapper");
   await expect(chart).toBeVisible();
   await expect(page.getByText("Performance Ratio history (%)")).toBeVisible();

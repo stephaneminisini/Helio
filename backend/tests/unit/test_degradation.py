@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from helio.analytics.degradation import (
+    BASELINE_MONTHS,
     calculate_annual_degradation,
     estimate_lost_production,
+    measured_baseline_pr,
     project_future_efficiency,
 )
 from helio.db.models import System
@@ -239,3 +241,77 @@ async def test_projection_of_an_improving_system_reports_a_negative_rate():
 
     assert result["annual_rate"] == pytest.approx(-0.005, abs=1e-4)
     assert result["warranty_breach_year"] is None
+
+
+def _baseline_system(
+    baseline: str | None = None,
+    degradation_rate: str = "0.5",
+) -> MagicMock:
+    """A system with a degradation rate and an optionally configured baseline."""
+    system = MagicMock(spec=System)
+    system.id = 1
+    system.install_date = INSTALL_DATE
+    system.degradation_rate = Decimal(degradation_rate)
+    system.baseline_pr = Decimal(baseline) if baseline else None
+    return system
+
+
+@pytest.mark.asyncio
+async def test_measured_baseline_prefers_the_configured_override():
+    """A commissioning figure is the owner's statement; history cannot outvote it."""
+    session = _session_with_history(months=36, annual_loss=0.005, baseline=0.70)
+
+    result = await measured_baseline_pr(session, _baseline_system(baseline="0.8600"))
+
+    assert result == pytest.approx(0.86)
+
+
+@pytest.mark.asyncio
+async def test_measured_baseline_uses_the_configured_override_without_any_history():
+    """The override is what makes a brand new system measurable at all."""
+    result = await measured_baseline_pr(
+        _session_with_history(months=0, annual_loss=0.005),
+        _baseline_system(baseline="0.8000"),
+    )
+
+    assert result == pytest.approx(0.80)
+
+
+@pytest.mark.asyncio
+async def test_measured_baseline_recovers_the_systems_own_starting_ratio():
+    """The first year, walked back up the curve, is the PR the system began at."""
+    session = _session_with_history(
+        months=BASELINE_MONTHS, annual_loss=0.004, start=INSTALL_DATE, baseline=0.83
+    )
+
+    result = await measured_baseline_pr(session, _baseline_system())
+
+    assert result == pytest.approx(0.83, abs=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_measured_baseline_anchors_on_the_install_date_not_the_window():
+    """A window measured years later has to be de-degraded, or it reads low.
+
+    Without the correction the baseline would come back as the window's own
+    average, which for a system this old is most of a percent too low and would
+    excuse a real shortfall.
+    """
+    session = _session_with_history(
+        months=BASELINE_MONTHS, annual_loss=0.0, start=date(2024, 1, 1), baseline=0.80
+    )
+
+    result = await measured_baseline_pr(session, _baseline_system(degradation_rate="1"))
+
+    assert result > 0.83
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("months", [0, 1, BASELINE_MONTHS - 1])
+async def test_measured_baseline_is_unknown_below_a_full_year(months):
+    """AC4: a partial year averages seasons badly, so no standard is invented."""
+    session = _session_with_history(months=months, annual_loss=0.005)
+
+    result = await measured_baseline_pr(session, _baseline_system())
+
+    assert result is None

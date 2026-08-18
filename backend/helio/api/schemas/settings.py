@@ -34,6 +34,7 @@ class SettingsResponse(BaseModel):
     azimuth_deg: Decimal | None
     degradation_rate: Decimal
     warranty_degradation_rate: Decimal
+    baseline_pr: Decimal | None
     energy_rate_per_kwh: Decimal
     energy_rate_currency: str
     irradiance_source: str
@@ -63,6 +64,7 @@ class SettingsCreate(BaseModel):
     azimuth_deg: Decimal | None = Field(default=None, ge=0, le=360)
     degradation_rate: Decimal | None = Field(default=None, ge=0, le=99)
     warranty_degradation_rate: Decimal | None = Field(default=None, ge=0, le=99)
+    baseline_pr: Decimal | None = Field(default=None, gt=0, le=1)
     energy_rate_per_kwh: Decimal | None = Field(default=None, ge=0, lt=10_000)
     energy_rate_currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)
     irradiance_source: IrradianceSource | None = None
@@ -88,6 +90,7 @@ class SettingsUpdate(BaseModel):
     azimuth_deg: Decimal | None = None
     degradation_rate: Decimal | None = None
     warranty_degradation_rate: Decimal | None = Field(default=None, ge=0, le=99)
+    baseline_pr: Decimal | None = Field(default=None, gt=0, le=1)
     energy_rate_per_kwh: Decimal | None = Field(default=None, ge=0, lt=10_000)
     energy_rate_currency: str | None = Field(default=None, pattern=CURRENCY_PATTERN)
     irradiance_source: IrradianceSource | None = None

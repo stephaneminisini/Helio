@@ -67,6 +67,9 @@ export interface EfficiencyData {
     exceeds_warranty: boolean;
     energy_rate_per_kwh: number;
     energy_rate_currency: string;
+    /** The PR the anomaly flags and the lost figure are measured against. */
+    baseline_pr: number | null;
+    baseline_source: "configured" | "measured" | "none";
   };
 }
 
@@ -108,6 +111,8 @@ export interface SystemSettings {
   warranty_degradation_rate: string;
   energy_rate_per_kwh: string;
   energy_rate_currency: string;
+  /** Null means the baseline is measured from the system's own first year. */
+  baseline_pr: string | null;
   irradiance_source: string;
   enphase_connected: boolean;
 }

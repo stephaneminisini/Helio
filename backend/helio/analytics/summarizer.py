@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helio.analytics.degradation import DAYS_PER_YEAR, measured_baseline_pr
 from helio.db.models import (
     DailySummary,
     EnergyInterval,
@@ -13,6 +14,11 @@ from helio.db.models import (
     MonthlySummary,
     System,
 )
+
+# A month has to fall this far below the baseline curve to be called an anomaly.
+# Named here because the whole point of the baseline work is that this number is
+# meaningful: against an unreachable expected PR it was exceeded every month.
+ANOMALY_DROP = 0.015
 
 
 async def build_daily_summary(
@@ -140,6 +146,12 @@ async def rebuild_all_summaries(
     for month in months:
         await build_monthly_summary(session, system.id, month, system)
 
+    # After the loop, not inside it: the baseline is measured from the first year
+    # of monthly PRs, so nothing can be expected of any month until every month
+    # exists. Doing it per month would leave the first year unexpected until a
+    # second rebuild.
+    await apply_expected_pr(session, system)
+
     logger.info(
         "Rebuilt {} daily and {} monthly summaries for system={}",
         len(days),
@@ -155,7 +167,12 @@ async def build_monthly_summary(
     month: date,
     system: System,
 ) -> MonthlySummary:
-    """Compute monthly PR and expected PR, upsert into monthly_summaries.
+    """Compute one month's production, theoretical yield and PR, and upsert it.
+
+    Expected PR and the anomaly flag are deliberately not set here: they rest on
+    a baseline measured across the whole series, so they cannot be decided from
+    one month in isolation. Call apply_expected_pr afterwards, which every caller
+    of this function does.
 
     Args:
         session: Active async database session.
@@ -201,23 +218,6 @@ async def build_monthly_summary(
             str(round(float(production_kwh) / float(theoretical_kwh), 4))
         )
 
-    years_since_install = (
-        (month - system.install_date).days / 365.25 if system.install_date else 0
-    )
-    deg_rate = float(system.degradation_rate or 0) / 100
-    expected_pr = Decimal(str(round((1 - deg_rate) ** years_since_install, 4)))
-
-    is_anomaly = False
-    anomaly_reason = None
-    if performance_ratio and expected_pr:
-        drop = float(expected_pr) - float(performance_ratio)
-        if drop > 0.015:
-            is_anomaly = True
-            anomaly_reason = (
-                f"PR {float(performance_ratio):.1%} is {drop:.1%} "
-                f"below expected {float(expected_pr):.1%}"
-            )
-
     existing_monthly = (
         await session.execute(
             select(MonthlySummary).where(
@@ -234,18 +234,12 @@ async def build_monthly_summary(
             production_kwh=production_kwh,
             theoretical_kwh=theoretical_kwh,
             performance_ratio=performance_ratio,
-            expected_pr=expected_pr,
-            is_anomaly=is_anomaly,
-            anomaly_reason=anomaly_reason,
         )
         session.add(row)
     else:
         existing_monthly.production_kwh = production_kwh
         existing_monthly.theoretical_kwh = theoretical_kwh
         existing_monthly.performance_ratio = performance_ratio
-        existing_monthly.expected_pr = expected_pr
-        existing_monthly.is_anomaly = is_anomaly
-        existing_monthly.anomaly_reason = anomaly_reason
         row = existing_monthly
 
     await session.commit()
@@ -256,3 +250,73 @@ async def build_monthly_summary(
         performance_ratio,
     )
     return row
+
+
+async def apply_expected_pr(session: AsyncSession, system: System) -> int:
+    """Set expected PR and the anomaly flag on every stored month.
+
+    Expected PR is a property of the whole series rather than of one month: it
+    rests on a baseline measured across the system's first year, which cannot be
+    known while that year is still being built. Every month is therefore rewritten
+    once the summaries exist, which also means a system crossing into its first
+    full year picks expected PR up on its earlier months at the same time.
+
+    A system with no baseline yet leaves expected_pr null and every month
+    unflagged. That is deliberate: the alternative is inventing a standard, and an
+    unreachable one flags every month for every system forever, which is what this
+    replaced.
+
+    Args:
+        session: Active async database session.
+        system: System whose months to rewrite; read for its id, install date,
+            degradation rate and configured baseline.
+
+    Returns:
+        How many months were flagged as anomalous.
+    """
+    baseline = await measured_baseline_pr(session, system)
+    rows = (
+        (
+            await session.execute(
+                select(MonthlySummary)
+                .where(MonthlySummary.system_id == system.id)
+                .order_by(MonthlySummary.month)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    deg_rate = float(system.degradation_rate or 0) / 100
+    flagged = 0
+    for row in rows:
+        row.expected_pr = None
+        row.is_anomaly = False
+        row.anomaly_reason = None
+        if baseline is None:
+            continue
+
+        years_since_install = (row.month - system.install_date).days / DAYS_PER_YEAR
+        expected = round(baseline * (1 - deg_rate) ** years_since_install, 4)
+        row.expected_pr = Decimal(str(expected))
+        if row.performance_ratio is None:
+            continue
+
+        drop = expected - float(row.performance_ratio)
+        if drop > ANOMALY_DROP:
+            row.is_anomaly = True
+            row.anomaly_reason = (
+                f"PR {float(row.performance_ratio):.1%} is {drop:.1%} "
+                f"below expected {expected:.1%}"
+            )
+            flagged += 1
+
+    await session.commit()
+    logger.info(
+        "Expected PR applied for system={} baseline={} months={} flagged={}",
+        system.id,
+        baseline,
+        len(rows),
+        flagged,
+    )
+    return flagged
