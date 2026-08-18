@@ -66,13 +66,19 @@ find . -not -path './.git/*' -type f \
 
 On GitHub, after creating the repo:
 
-- [ ] Set repo to **Public**
-- [ ] Add a description: `The solar dashboard Enphase never built — historical comparisons, efficiency tracking, and degradation alerts.`
+- [x] Set repo to **Public**
+- [x] Add a description: `The solar dashboard Enphase never built - historical comparisons, efficiency tracking, and degradation alerts.`
 - [ ] Add a website URL (your Buy Me a Coffee page or a demo URL)
-- [ ] Add topics: `solar`, `enphase`, `self-hosted`, `docker`, `postgresql`, `fastapi`, `react`, `raspberry-pi`
-- [ ] Enable **Issues**
-- [ ] Enable **Discussions** (optional, good for community questions)
+- [x] Add topics: `solar`, `enphase`, `self-hosted`, `docker`, `postgresql`, `fastapi`, `react`, `raspberry-pi`
+- [x] Enable **Issues**
+- [x] **Discussions: left off.** One maintainer means one inbox; splitting questions
+      between Issues and Discussions on a low-traffic repo means one of the two goes
+      unread. Support questions go in Issues under a `question` label. Revisit if the
+      volume ever justifies it.
 - [ ] Add a social preview image (screenshot of the dashboard)
+
+The website URL stays empty until there is somewhere real to point it. There is no
+demo instance, and the Buy Me a Coffee page does not exist yet.
 
 ---
 
