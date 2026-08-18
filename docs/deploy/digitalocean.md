@@ -16,7 +16,7 @@ If you are new to DigitalOcean, use the referral link below. You get **$200 in f
 
 Click the button below to deploy Helio Monitor directly from GitHub to DigitalOcean App Platform:
 
-[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/YOUR_USERNAME/helio-monitor)
+[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/stephaneminisini/Helio)
 
 You will be walked through a short configuration wizard. See [Step 3](#step-3--configure-environment-variables) below for the values you need.
 
@@ -34,7 +34,7 @@ You will be walked through a short configuration wizard. See [Step 3](#step-3--c
 1. In the DigitalOcean dashboard, click **Create → Apps**
 2. Choose **GitHub** as the source
 3. Authorize DigitalOcean to access your GitHub account
-4. Select the `helio-monitor` repository and the `main` branch
+4. Select the `Helio` repository and the `main` branch
 5. Click **Next**
 
 ### Step 3 — Configure Environment Variables
