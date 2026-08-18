@@ -4,7 +4,9 @@
 
 Helio Monitor connects to your Enphase system and gives you the historical comparisons and efficiency tracking that the Enlighten app is missing — like knowing whether today's production beats the same day last year, whether your panels are degrading faster than the warranty allows, and which panel might be underperforming.
 
-![Dashboard Preview](docs/assets/preview.png)
+![The Helio Monitor Overview page, showing today's production, comparisons against the same day last year and last month, and year-to-date production for every year since install](docs/assets/preview.png)
+
+<sub>The Overview page on the synthetic dataset `make seed-mock` generates. Current power reads "Unavailable" there because it is the one figure that comes from a live Enphase call rather than from stored history.</sub>
 
 ---
 
