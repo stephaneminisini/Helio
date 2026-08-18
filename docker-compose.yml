@@ -1,8 +1,18 @@
+# Docker's json-file driver keeps logs forever by default. Data retention here
+# is indefinite by design, so an uncapped log volume on the same disk is the
+# thing most likely to fill a Raspberry Pi and take the stack down with it.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   db:
     image: postgres:15-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -21,12 +31,17 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
     env_file: .env
+    # Browsers reach the API through the frontend's /api proxy, so this port is
+    # published on the loopback interface only. It is there for the interactive
+    # docs at http://localhost:8000/docs and for tests run on the host; nothing
+    # outside the machine needs it, and nothing outside the machine gets it.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -38,14 +53,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     restart: unless-stopped
+    logging: *logging
     depends_on:
       api:
         condition: service_healthy
+    # The one origin a user has to expose and secure. Change HELIO_PORT to move
+    # it; the image holds no absolute API URL, so nothing needs rebuilding.
     ports:
-      - "3000:80"
+      - "${HELIO_PORT:-3000}:80"
 
 volumes:
   pgdata:
