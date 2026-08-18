@@ -55,11 +55,11 @@ describe("OverviewPage", () => {
     render(<OverviewPage />);
 
     expect(
-      await screen.findByText("Today vs same day last year")
+      await screen.findByText("Today so far vs same day last year")
     ).toBeInTheDocument();
     const cases: [string, string, string][] = [
-      ["Today vs same day last year", "vs 20.0", "+50.0%"],
-      ["Today vs same day last month", "vs 24.0", "+25.0%"],
+      ["Today so far vs same day last year", "vs 20.0", "+50.0%"],
+      ["Today so far vs same day last month", "vs 24.0", "+25.0%"],
       ["This month vs last month", "vs 320.0", "+25.0%"],
       ["This month vs same month last year", "vs 500.0", "-20.0%"],
     ];
@@ -80,8 +80,8 @@ describe("OverviewPage", () => {
 
     render(<OverviewPage />);
 
-    await screen.findByText("Today vs same day last month");
-    const bar = card("Today vs same day last month");
+    await screen.findByText("Today so far vs same day last month");
+    const bar = card("Today so far vs same day last month");
     expect(within(bar).getByText("vs -")).toBeInTheDocument();
     expect(within(bar).getByText("-")).toBeInTheDocument();
     expect(within(bar).queryByText("0.0%")).not.toBeInTheDocument();

@@ -8,7 +8,7 @@ show up as a wrong-day comparison on the dashboard.
 """
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, datetime
 
 
 def today() -> date:
@@ -20,6 +20,17 @@ def today() -> date:
         exercise the leap-year paths below on a fixed date.
     """
     return date.today()
+
+
+def now_local() -> datetime:
+    """Return the current local time.
+
+    Returns:
+        The current instant, naive and in the server's timezone, matching
+        today(). Comparisons that stop partway through the day need the time as
+        well as the date, and share this one call for the same reason.
+    """
+    return datetime.now()
 
 
 def same_day_last_month(anchor: date) -> date:

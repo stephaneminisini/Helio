@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,19 +13,34 @@ from helio.ingestion.enphase_client import CurrentProduction
 
 
 def _fake_db(
-    daily: dict[date, float], install_date: date = date(2020, 1, 1)
+    daily: dict[date, float],
+    install_date: date = date(2020, 1, 1),
+    intervals: dict[datetime, float] | None = None,
 ) -> AsyncMock:
-    """Serve the overview queries from an in-memory day to kWh mapping.
+    """Serve the overview queries from in-memory production mappings.
 
     The route's reads carry their meaning entirely in their SQL, so dispatching
     on the compiled statement keeps this fake indifferent to the order they
     happen to run in. Executed statements are recorded on `session.statements`
     so a test can assert which window was queried.
+
+    Args:
+        daily: Production in kWh per day, standing in for daily_summaries.
+        install_date: When the system started producing.
+        intervals: Production in Wh per interval start, standing in for
+            energy_intervals. Defaults to each day of `daily` collapsed into one
+            interval at its own midnight, so a test that only cares about whole
+            days does not have to spell out a production curve.
     """
     system = MagicMock(spec=System)
     system.id = 1
     system.install_date = install_date
     statements: list[tuple[str, dict]] = []
+    stored_intervals = (
+        intervals
+        if intervals is not None
+        else {datetime.combine(day, time.min): kwh * 1000 for day, kwh in daily.items()}
+    )
 
     async def execute(stmt):
         sql = str(stmt)
@@ -33,6 +48,15 @@ def _fake_db(
         statements.append((sql, params))
         if "FROM systems" in sql:
             return MagicMock(scalar_one_or_none=MagicMock(return_value=system))
+        if "sum(energy_intervals.production_wh)" in sql:
+            start = params["interval_start_1"]
+            end = params["interval_start_2"]
+            window = [wh for at, wh in stored_intervals.items() if start <= at < end]
+            # A day with no intervals at all sums to SQL NULL, which the route
+            # has to tell apart from a day that had produced nothing by now.
+            return MagicMock(
+                scalar=MagicMock(return_value=sum(window) if window else None)
+            )
         if "sum(daily_summaries.production_kwh)" in sql:
             start = params.get("day_1", date.min)
             end = params.get("day_2", date.max)
@@ -94,10 +118,18 @@ def live_reading(monkeypatch):
 
 @pytest.fixture
 def pinned_today(monkeypatch):
-    """Pin the route's calendar so the comparison windows are deterministic."""
+    """Pin the route's calendar so the comparison windows are deterministic.
 
-    def pin(day: date) -> date:
+    The clock is pinned as well as the date, because the day comparisons cut the
+    prior day at the current time. It defaults to the last moment of the day, so
+    a prior day comes out whole unless a test asks for a partial one.
+    """
+
+    def pin(day: date, at: time = time.max) -> date:
         monkeypatch.setattr(overview_route, "today", lambda: day)
+        monkeypatch.setattr(
+            overview_route, "now_local", lambda: datetime.combine(day, at)
+        )
         return day
 
     return pin
@@ -109,6 +141,15 @@ def _single_day_lookups(session: AsyncMock) -> list[date]:
         params["day_1"]
         for sql, params in session.statements
         if sql.startswith("SELECT daily_summaries.id") and "ORDER BY" not in sql
+    ]
+
+
+def _interval_windows(session: AsyncMock) -> list[tuple[datetime, datetime]]:
+    """The (start, end) window of every interval sum the route executed."""
+    return [
+        (params["interval_start_1"], params["interval_start_2"])
+        for sql, params in session.statements
+        if "sum(energy_intervals.production_wh)" in sql
     ]
 
 
@@ -191,8 +232,10 @@ async def test_overview_compares_the_calendar_day_across_a_leap_year(pinned_toda
     async with _client_with_db(session) as client:
         response = await client.get("/api/overview")
 
-    assert _single_day_lookups(session) == [
-        date(2024, 3, 1),
+    assert _single_day_lookups(session)[0] == date(2024, 3, 1)
+    # Each prior day is read from its own intervals, so the day it starts on is
+    # what proves the arithmetic landed on 1 March and not on 29 February.
+    assert [start.date() for start, _ in _interval_windows(session)] == [
         date(2024, 2, 1),
         date(2023, 3, 1),
     ]
@@ -209,8 +252,8 @@ async def test_overview_survives_a_leap_day_anchor(pinned_today):
         response = await client.get("/api/overview")
 
     assert response.status_code == 200
-    assert _single_day_lookups(session) == [
-        date(2024, 2, 29),
+    assert _single_day_lookups(session)[0] == date(2024, 2, 29)
+    assert [start.date() for start, _ in _interval_windows(session)] == [
         date(2024, 1, 29),
         date(2023, 2, 28),
     ]
@@ -228,6 +271,73 @@ async def test_overview_clamps_a_month_end_anchor_to_a_shorter_month(pinned_toda
 
     assert date(2025, 2, 28) in _single_day_lookups(session)
     assert (date(2025, 2, 1), date(2025, 2, 28)) in _sum_windows(session)
+
+
+@pytest.mark.asyncio
+async def test_overview_cuts_the_prior_day_at_the_time_of_day_it_is_now(pinned_today):
+    """AC2: a part-day today against a whole prior day invents a collapse.
+
+    Today is only ever partly over, so the prior day has to be cut at the same
+    point or a healthy system reads as down 85 percent every morning.
+    """
+    pinned_today(date(2025, 7, 12), at=time(9, 0))
+    session = _fake_db(
+        {date(2025, 7, 12): 2.0, date(2024, 7, 12): 30.0},
+        intervals={
+            datetime(2024, 7, 12, 8, 0): 2_000.0,
+            datetime(2024, 7, 12, 12, 0): 20_000.0,
+            datetime(2024, 7, 12, 17, 0): 8_000.0,
+        },
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    # 2 kWh against the 2 kWh the prior day had made by 9am, not against its 30.
+    assert response.json()["day_comparison"] == {
+        "current_kwh": 2.0,
+        "prior_kwh": 2.0,
+        "pct_change": 0.0,
+    }
+    assert _interval_windows(session)[-1] == (
+        datetime(2024, 7, 12, 0, 0),
+        datetime(2024, 7, 12, 9, 0),
+    )
+
+
+@pytest.mark.asyncio
+async def test_overview_reports_a_prior_night_as_zero_rather_than_missing(pinned_today):
+    """Before dawn both sides are zero, which is measured, not unmeasured."""
+    pinned_today(date(2025, 7, 12), at=time(3, 0))
+    session = _fake_db(
+        {date(2025, 7, 12): 0.0, date(2024, 7, 12): 30.0},
+        intervals={datetime(2024, 7, 12, 12, 0): 30_000.0},
+    )
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    day = response.json()["day_comparison"]
+    assert day["current_kwh"] == 0.0
+    # The prior day is stored and had simply produced nothing by 3am.
+    assert day["prior_kwh"] == 0.0
+    # AC2: there is nothing to divide by, so the change is unknown. Reporting
+    # -100 percent every night is the false alarm this issue is about.
+    assert day["pct_change"] is None
+
+
+@pytest.mark.asyncio
+async def test_overview_leaves_a_prior_day_it_never_recorded_unknown(pinned_today):
+    """A day absent from the database must not read as a day that made 0 kWh."""
+    pinned_today(date(2025, 7, 12), at=time(9, 0))
+    session = _fake_db({date(2025, 7, 12): 2.0}, intervals={})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    day = response.json()["day_comparison"]
+    assert day["prior_kwh"] is None
+    assert day["pct_change"] is None
 
 
 @pytest.mark.asyncio
