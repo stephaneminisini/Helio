@@ -46,7 +46,7 @@ that polls daily stays connected. After a longer outage, click **Reconnect to En
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `FERNET_KEY` | ✅ | — | Symmetric encryption key for storing OAuth tokens. Generate with: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `FERNET_KEY` | ✅ | — | Symmetric encryption key for storing OAuth tokens. Generate with: `make generate-fernet-key` |
 
 ---
 
@@ -135,7 +135,7 @@ ENPHASE_SYSTEM_ID=
 ENPHASE_REDIRECT_URI=http://localhost:3000/api/auth/enphase/callback
 
 # ── Security ──────────────────────────────────────────────────────────────────
-# Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate: make generate-fernet-key
 FERNET_KEY=
 
 # ── Weather / Irradiance ──────────────────────────────────────────────────────
