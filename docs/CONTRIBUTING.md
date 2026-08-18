@@ -38,6 +38,32 @@ Re-running it is safe: it overwrites the days it generated. It refuses to run, w
 
 ---
 
+## Smoke Tests
+
+The Playwright suite in `frontend/e2e/` opens the Overview, Efficiency and Setup pages in a real browser and asserts on what they render. It exists to catch the failure the unit tests cannot see: a page that type-checks and builds, then renders an error state because the API contract moved.
+
+It needs a database with data in it, so seed one first:
+
+```bash
+make up
+make migrate
+make e2e-system   # creates the system row the seeder writes against
+make seed-mock
+make e2e
+```
+
+`make e2e` starts its own vite dev server on port 5173 and proxies `/api` to the API on port 8000, so the browser sees a single origin. Leave `VITE_API_BASE_URL` unset when running it — setting it makes the frontend call the API directly and the requests fail CORS.
+
+Browsers are not installed by `npm ci`. Once per machine:
+
+```bash
+cd frontend && npx playwright install chromium
+```
+
+On a failure, the trace and screenshot land in `frontend/test-results/` and the HTML report in `frontend/playwright-report/` (`npx playwright show-report`). CI uploads both, plus the API log, as artifacts of the failed run.
+
+---
+
 ## Pull Request Guidelines
 
 1. Fork the repository and create a branch from `main`

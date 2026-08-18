@@ -36,5 +36,11 @@ export default tseslint.config(
     // jsdom installs need declaring here.
     files: ["**/*.test.{ts,tsx}", "src/test/**/*.ts"],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // The Playwright runner and its config are node code: they read process.env
+    // and never run in the browser.
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    languageOptions: { globals: globals.node },
   }
 );
