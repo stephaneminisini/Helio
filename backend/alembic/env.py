@@ -11,15 +11,23 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+from helio.core.config import settings  # noqa: E402 - after fileConfig
 from helio.db.models import Base  # noqa: F401, E402 - registers all models
 
 target_metadata = Base.metadata
+# The application reaches the database through DATABASE_URL, and so must
+# alembic: the url in alembic.ini names localhost, which inside the api
+# container is the api container itself rather than the db service. It is
+# applied to the engine directly rather than through set_main_option, because
+# a password containing a percent sign would break ini interpolation.
+DATABASE_URL = settings.database_url
 
 
 def run_migrations_offline() -> None:
     """Run migrations in offline mode using a URL string."""
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(
+        url=DATABASE_URL, target_metadata=target_metadata, literal_binds=True
+    )
     with context.begin_transaction():
         context.run_migrations()
 
@@ -34,7 +42,10 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations via run_sync."""
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        {
+            **config.get_section(config.config_ini_section, {}),
+            "sqlalchemy.url": DATABASE_URL,
+        },
         prefix="sqlalchemy.",
         poolclass=NullPool,
     )

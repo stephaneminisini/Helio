@@ -76,6 +76,27 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      # Migrations run against this before the suite, so a revision that does
+      # not apply cleanly fails the job rather than the next deployment.
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: helio
+          POSTGRES_PASSWORD: helio
+          POSTGRES_DB: helio_test
+        ports:
+          - 5432:5432
+        # The health check goes over TCP on purpose. The image's init step runs
+        # a temporary server on the unix socket only, before the password is in
+        # place, so a socket probe reports ready too early.
+        options: >-
+          --health-cmd "pg_isready -h localhost -U helio -d helio_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://helio:helio@localhost:5432/helio_test
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -94,8 +115,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --group dev
 
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+        run: >-
+          uv run pytest tests/ -v --tb=short
+          --cov=helio --cov-report=term-missing --cov-fail-under=80
 
   frontend-build:
     name: Frontend Build
