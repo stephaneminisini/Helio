@@ -32,15 +32,15 @@ If you don't have an Enphase system, you can run with seeded mock data:
 make seed-mock
 ```
 
-This inserts 3 years of synthetic production data so you can develop against a realistic dataset without API access.
+This inserts 3 years of synthetic production data so you can develop against a realistic dataset without API access. Every day also gets one reading per microinverter, so the Panels heatmap renders instead of showing its empty state, with one panel held below the rest so the anomaly flag is visible too.
 
-Re-running it is safe: it overwrites the days it generated. It refuses to run, with exit code 3, against a database that already holds production intervals it did not write, because real measurements older than the Enphase retention window cannot be fetched again.
+Re-running it is safe: it overwrites the days it generated. It refuses to run, with exit code 3, against a database that already holds production intervals or panel readings it did not write, because real measurements older than the Enphase retention window cannot be fetched again.
 
 ---
 
 ## Smoke Tests
 
-The Playwright suite in `frontend/e2e/` opens the Overview, Efficiency and Setup pages in a real browser and asserts on what they render. It exists to catch the failure the unit tests cannot see: a page that type-checks and builds, then renders an error state because the API contract moved.
+The Playwright suite in `frontend/e2e/` opens the Overview, Efficiency, Panels and Setup pages in a real browser and asserts on what they render. It exists to catch the failure the unit tests cannot see: a page that type-checks and builds, then renders an error state because the API contract moved.
 
 It needs a database with data in it, so seed one first:
 
