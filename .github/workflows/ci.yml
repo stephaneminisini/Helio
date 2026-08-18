@@ -196,7 +196,7 @@ jobs:
       - name: Start the API
         working-directory: backend
         run: |
-          uv run uvicorn helio.main:app --host 127.0.0.1 --port 8000 \
+          uv run uvicorn helio.api.main:app --host 127.0.0.1 --port 8000 \
             > api.log 2>&1 &
 
       - name: Create the smoke test system
