@@ -160,6 +160,40 @@ describe("SetupPage", () => {
     });
   });
 
+  // A number input defaults to step=1, so a browser marks "7.6" as a step
+  // mismatch and refuses to submit the form. Every field below holds a decimal
+  // in practice.
+  it("accepts fractional values in every decimal field", async () => {
+    const fetchMock = stubFetch({
+      [SETTINGS_PATH]: [response(200, SYSTEM), response(200, SYSTEM)],
+      [STATUS_PATH]: response(200, DISCONNECTED),
+    });
+    render(<SetupPage />);
+    await screen.findByRole("button", { name: "Save Settings" });
+
+    const decimals = {
+      "System Size (kW)": "7.6",
+      "Tilt Angle (deg)": "22.5",
+      "Azimuth (deg)": "187.5",
+      "Degradation Rate (%/yr)": "0.45",
+    };
+    for (const [label, value] of Object.entries(decimals)) {
+      const input = screen.getByLabelText(label) as HTMLInputElement;
+      fireEvent.change(input, { target: { value } });
+      expect(input.validity.stepMismatch).toBe(false);
+      expect(input.checkValidity()).toBe(true);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+
+    await waitFor(() => expect(callsTo(fetchMock, SETTINGS_PATH)).toHaveLength(2));
+    expect(jsonBody(callsTo(fetchMock, SETTINGS_PATH)[1])).toMatchObject({
+      system_size_kw: "7.6",
+      tilt_angle_deg: "22.5",
+      azimuth_deg: "187.5",
+      degradation_rate: "0.45",
+    });
+  });
+
   it("still shows an error state for a real API failure", async () => {
     stubFetch({ [SETTINGS_PATH]: response(500, { detail: "boom" }) });
 
