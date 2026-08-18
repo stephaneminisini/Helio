@@ -17,7 +17,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "  ☀️  Helio Monitor"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
@@ -181,6 +181,16 @@ lint-check: ## Check formatting and lint without making changes (for CI)
 .PHONY: lint-frontend
 lint-frontend: ## Lint the frontend with ESLint
 	cd frontend && npm run lint
+
+.PHONY: e2e-system
+e2e-system: ## Create the system row the smoke tests need (run before seed-mock)
+	./scripts/create-e2e-system.sh
+
+# Playwright starts its own vite dev server on the host, which proxies /api to
+# the api container on port 8000, so the pages are served from one origin.
+.PHONY: e2e
+e2e: ## Run the Playwright smoke tests against the running stack
+	cd frontend && npm run e2e
 
 # ── Updates ───────────────────────────────────────────────────────────────────
 
