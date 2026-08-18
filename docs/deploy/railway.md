@@ -14,7 +14,7 @@ Sign up with the referral link below to start with free credit on Railway:
 
 ## One-Click Deploy
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/helio-monitor)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/stephaneminisini/Helio)
 
 ---
 
@@ -29,7 +29,7 @@ Sign up with the referral link below to start with free credit on Railway:
 
 1. In the Railway dashboard click **New Project**
 2. Select **Deploy from GitHub repo**
-3. Choose the `helio-monitor` repository
+3. Choose the `Helio` repository
 4. Railway auto-detects Docker Compose and configures services
 
 ### Step 3 — Add PostgreSQL

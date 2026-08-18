@@ -70,8 +70,8 @@ https://enlighten.enphaseenergy.com/web/12345678/today/graph/hours
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/helio-monitor.git
-cd helio-monitor
+git clone https://github.com/stephaneminisini/Helio.git
+cd Helio
 ```
 
 ### Step 2 — Copy the example environment file
@@ -280,5 +280,5 @@ ports:
 
 ## Getting Help
 
-- Open an issue: [github.com/YOUR_USERNAME/helio-monitor/issues](https://github.com/YOUR_USERNAME/helio-monitor/issues)
+- Open an issue: [github.com/stephaneminisini/Helio/issues](https://github.com/stephaneminisini/Helio/issues)
 - Check existing issues before opening a new one

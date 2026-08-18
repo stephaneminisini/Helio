@@ -22,7 +22,7 @@ Helio Monitor connects to your Enphase system and gives you the historical compa
 
 ### DigitalOcean (Recommended)
 
-[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/YOUR_USERNAME/helio-monitor)
+[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/stephaneminisini/Helio)
 
 > 🎁 New to DigitalOcean? Use the referral link below for **$200 free credit** — enough to run Helio Monitor for months.
 >
@@ -32,7 +32,7 @@ Full guide: [docs/deploy/digitalocean.md](docs/deploy/digitalocean.md)
 
 ### Railway
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/YOUR_USERNAME/helio-monitor)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/stephaneminisini/Helio)
 
 > 🎁 New to Railway? Sign up with this link and get **$5 free credit**.
 >
@@ -47,8 +47,8 @@ Prefer to keep everything local? Full guide: [docs/deploy/raspberry-pi.md](docs/
 ### Manual Docker Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/helio-monitor
-cd helio-monitor
+git clone https://github.com/stephaneminisini/Helio
+cd Helio
 cp .env.example .env
 # Edit .env with your Enphase credentials
 make up

@@ -51,8 +51,8 @@ sudo apt install -y git make
 
 ```bash
 cd ~
-git clone https://github.com/YOUR_USERNAME/helio-monitor.git
-cd helio-monitor
+git clone https://github.com/stephaneminisini/Helio.git
+cd Helio
 ```
 
 ### Step 2 — Configure
@@ -198,7 +198,7 @@ To automate daily backups, add to crontab:
 ```bash
 crontab -e
 # Add this line:
-0 3 * * * cd /home/pi/helio-monitor && make backup-db
+0 3 * * * cd /home/pi/Helio && make backup-db
 ```
 
 ---
@@ -221,7 +221,7 @@ docker stats
 ## Updating
 
 ```bash
-cd ~/helio-monitor
+cd ~/Helio
 make update
 ```
 
