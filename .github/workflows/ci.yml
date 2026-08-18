@@ -11,6 +11,11 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    # Every job carries a limit because the GitHub default is 6 hours: a wedged
+    # step leaves the PR pending for that long and has to be cancelled by hand.
+    # The limits are several times the observed runtime so a cold cache or a slow
+    # runner never trips one.
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -41,6 +46,8 @@ jobs:
   backend-security:
     name: Backend Security
     runs-on: ubuntu-latest
+    # Higher than the lint limit: Trivy downloads its vulnerability database.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -73,6 +80,7 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -126,6 +134,7 @@ jobs:
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -157,6 +166,9 @@ jobs:
   frontend-e2e:
     name: Frontend Smoke Tests
     runs-on: ubuntu-latest
+    # The longest job: it builds both sides, seeds three years of data and drives
+    # a browser. About 3 minutes at its fastest and 7 on a slow runner.
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:15-alpine
@@ -236,8 +248,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # This is the step that has stalled: it downloads a browser and apt-installs
+      # its system libraries, so a bad CDN or apt mirror wedges it silently. A
+      # step limit well under the job's names the culprit in the log instead of
+      # timing out the whole job on an unrelated-looking line. 10 minutes is
+      # double the slowest run that still succeeded (4m50s) and less than half
+      # the shortest observed stall, so it separates the two. Not retried: the
+      # runner would kill npx and leave apt holding the dpkg lock, so the second
+      # attempt fails for a different and more confusing reason.
       - name: Install Playwright browsers
         working-directory: frontend
+        timeout-minutes: 10
         run: npx playwright install --with-deps chromium
 
       - name: Run smoke tests
