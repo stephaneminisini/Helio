@@ -52,7 +52,7 @@ make seed-mock
 make e2e
 ```
 
-`make e2e` starts its own vite dev server on port 5173 and proxies `/api` to the API on port 8000, so the browser sees a single origin. Leave `VITE_API_BASE_URL` unset when running it — setting it makes the frontend call the API directly and the requests fail CORS.
+`make e2e` starts its own vite dev server on port 5173 and proxies `/api` to the API on port 8000, so the browser sees a single origin, exactly as the nginx in the production image does. Point the proxy somewhere else with `HELIO_API_PROXY_TARGET` if your API is not on `localhost:8000`.
 
 Browsers are not installed by `npm ci`. Once per machine:
 

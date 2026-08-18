@@ -22,7 +22,7 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 | `ENPHASE_CLIENT_ID` | ✅ | — | Client ID from your Enphase developer app |
 | `ENPHASE_CLIENT_SECRET` | ✅ | — | Client Secret from your Enphase developer app |
 | `ENPHASE_SYSTEM_ID` | ✅ | — | Your Enphase system ID (visible in Enlighten URL) |
-| `ENPHASE_REDIRECT_URI` | No | `http://localhost:8000/api/auth/enphase/callback` | OAuth callback URL. Must be registered on your Enphase app and reachable from your browser |
+| `ENPHASE_REDIRECT_URI` | No | `http://localhost:3000/api/auth/enphase/callback` | OAuth callback URL. Must be registered on your Enphase app and reachable from your browser. It goes through the dashboard's origin, which proxies `/api` to the API |
 | `ENPHASE_ACCESS_TOKEN` | No | — | Optional bootstrap token; ignored once the account is connected from the Setup tab |
 | `ENPHASE_REFRESH_TOKEN` | No | — | Optional bootstrap token; ignored once the account is connected from the Setup tab |
 
@@ -87,8 +87,35 @@ Ratio derived from it was wrong.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VITE_API_BASE_URL` | No | `http://localhost:8000` | Base URL of the API server, as seen from the browser. Change this if you deploy behind a reverse proxy or use a custom domain. |
+| `HELIO_PORT` | No | `3000` | Port the dashboard is published on. It serves the app and proxies `/api` to the API, so it is the only port that must be reachable. |
 | `FRONTEND_BASE_URL` | No | `http://localhost:3000` | Base URL of the dashboard. The Enphase OAuth callback redirects the browser back here. |
+
+The frontend holds no API URL. It calls `/api` on whatever origin served it, and nginx inside the container proxies that to the API, so moving the deployment to another host, port or domain needs no image rebuild — only `HELIO_PORT`, `FRONTEND_BASE_URL` and `ENPHASE_REDIRECT_URI` kept in agreement.
+
+The API's own port is published on `127.0.0.1` only, for the interactive docs at `http://localhost:8000/docs` and for tests run on the host. Nothing outside the machine needs it.
+
+---
+
+## Logs
+
+Every service logs to stdout through Docker's `json-file` driver, capped in `docker-compose.yml`:
+
+| Option | Value | Effect |
+|--------|-------|--------|
+| `max-size` | `10m` | A log file rolls over once it reaches 10 MB |
+| `max-file` | `3` | Three files are kept per service, so at most 30 MB each |
+
+That bounds the stack at roughly 90 MB of logs, which matters most on a Raspberry Pi where the database shares the disk. Raise the values in `docker-compose.yml` if you want longer history:
+
+```yaml
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+```
+
+Rotation is handled by the Docker daemon, so no host-level `logrotate` entry is needed.
 
 ---
 
@@ -105,7 +132,7 @@ POSTGRES_DB=helio
 ENPHASE_CLIENT_ID=
 ENPHASE_CLIENT_SECRET=
 ENPHASE_SYSTEM_ID=
-ENPHASE_REDIRECT_URI=http://localhost:8000/api/auth/enphase/callback
+ENPHASE_REDIRECT_URI=http://localhost:3000/api/auth/enphase/callback
 
 # ── Security ──────────────────────────────────────────────────────────────────
 # Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -120,6 +147,6 @@ POLL_MINUTE=0
 TZ=America/Montreal
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
-VITE_API_BASE_URL=http://localhost:8000
+HELIO_PORT=3000
 FRONTEND_BASE_URL=http://localhost:3000
 ```

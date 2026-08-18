@@ -64,6 +64,15 @@ nano .env
 
 Fill in your values (see [docs/INSTALL.md](../INSTALL.md#step-3--edit-env) for full variable reference).
 
+Set `FRONTEND_BASE_URL` and `ENPHASE_REDIRECT_URI` to your Pi's address rather than `localhost`, so the Enphase consent flow can send your browser back:
+
+```bash
+FRONTEND_BASE_URL=http://<pi-ip>:3000
+ENPHASE_REDIRECT_URI=http://<pi-ip>:3000/api/auth/enphase/callback
+```
+
+Port 3000 serves the dashboard and proxies `/api` to the API, so it is the only port to expose. Change it with `HELIO_PORT` — no rebuild needed.
+
 Generate your Fernet key:
 ```bash
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -171,6 +180,8 @@ Solar data at 15-minute intervals grows slowly:
 A standard Pi SD card or USB drive is more than sufficient for the lifetime of your system.
 
 **Recommended:** Use a USB SSD instead of an SD card for better reliability and speed.
+
+Container logs are capped as well, at 10 MB per file and 3 files per service, so an unattended stack cannot fill the disk with its own logs while the database keeps growing. See [Logs](../CONFIGURATION.md#logs) to change the limits.
 
 ---
 
