@@ -1,4 +1,4 @@
-"""Generate synthetic production and irradiance data for development.
+"""Generate synthetic production, irradiance and per-panel data for development.
 
 Lets a contributor see a populated dashboard without an Enphase account. The
 numbers are deterministic for a given seed and shaped to be plausible rather
@@ -16,8 +16,9 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helio.analytics.anomaly import MIN_FLEET_SIZE
 from helio.analytics.summarizer import rebuild_all_summaries
-from helio.db.models import EnergyInterval, Irradiance, System
+from helio.db.models import EnergyInterval, Irradiance, PanelReading, System
 
 DEFAULT_YEARS = 3
 INTERVALS_PER_DAY = 96
@@ -33,8 +34,23 @@ SUMMER_SOLSTICE_DOY = 172
 SOLAR_NOON_HOUR = 13.0
 DEFAULT_SIZE_KW = 10.0
 DEFAULT_LATITUDE = 45.0
+# Typical module nameplate in watts, used only to size a fleet for a system that
+# never recorded its panel count.
+PANEL_WATTS = 400
+# Prefixed rather than shaped like an Enphase serial, so nobody reading the
+# heatmap mistakes a seeded roof for a real one. The cells show only the last
+# four characters of a serial, so the number is padded to fill them.
+PANEL_SERIAL_TEMPLATE = "MOCK{:04d}"
+# Ordinary scatter between identical modules, as a fraction either side of the
+# fleet average.
+PANEL_SPREAD = 0.03
+# One panel is held well below the rest so the heatmap demonstrates what it is
+# for. A population sigma bounds the worst deviation in a fleet of n panels at
+# -sqrt(n-1), so with the others grouped this tightly the weak one has to sit
+# this far down to clear anomaly.SIGMA_THRESHOLD.
+WEAK_PANEL_FACTOR = 0.72
 REAL_DATA_MESSAGE = (
-    "This database holds {} production intervals the mock seeder did not write, so "
+    "This database holds {count} {rows} the mock seeder did not write, so "
     "seeding would overwrite real measurements. Point at an empty development "
     "database instead."
 )
@@ -43,9 +59,9 @@ REAL_DATA_MESSAGE = (
 class RealDataError(RuntimeError):
     """Raised when the target database already holds real production data.
 
-    Seeding overwrites intervals day by day, and measurements older than the
-    Enphase retention window cannot be fetched again, so a live install must be
-    refused rather than overwritten.
+    Seeding overwrites intervals and panel readings day by day, and measurements
+    older than the Enphase retention window cannot be fetched again, so a live
+    install must be refused rather than overwritten.
     """
 
 
@@ -161,6 +177,59 @@ def _interval_rows(
     ]
 
 
+def _panel_factors(system: System, rng: random.Random) -> list[float]:
+    """Assign every microinverter on the roof a persistent share of the output.
+
+    Args:
+        system: System supplying the panel count, or the size to derive one from.
+        rng: Seeded generator, so a reseed rebuilds the same roof and a panel
+            does not change character between runs.
+
+    Returns:
+        One multiplier per panel. All but the last sit within PANEL_SPREAD of
+        each other, which is the ordinary scatter across identical modules; the
+        last is held at WEAK_PANEL_FACTOR so at least one panel reads as a real
+        outlier rather than as noise.
+    """
+    size_kw = float(system.system_size_kw or DEFAULT_SIZE_KW)
+    # A derived count rounds to zero for an absurdly small system size, and below
+    # MIN_FLEET_SIZE the standard deviation is degenerate, so the fleet is floored
+    # at the smallest size the anomaly detector will look at.
+    derived = system.panel_count or round(size_kw * 1000 / PANEL_WATTS)
+    count = max(MIN_FLEET_SIZE, derived)
+    factors = [rng.uniform(1 - PANEL_SPREAD, 1 + PANEL_SPREAD) for _ in range(count)]
+    factors[-1] = WEAK_PANEL_FACTOR
+    return factors
+
+
+def _panel_rows(
+    system_id: int, day: date, kwh: float, factors: list[float]
+) -> list[dict]:
+    """Split one day's production across the microinverters.
+
+    Args:
+        system_id: Owning system.
+        day: The day the readings cover.
+        kwh: Total production for the day in kilowatt-hours.
+        factors: Each panel's persistent share, from _panel_factors.
+
+    Returns:
+        One row per panel. The shares are divided by their own total, so the
+        fleet sums to exactly the day's production and the Panels tab cannot
+        disagree with the Overview.
+    """
+    total = sum(factors)
+    return [
+        {
+            "system_id": system_id,
+            "panel_serial": PANEL_SERIAL_TEMPLATE.format(index + 1),
+            "day": day,
+            "energy_wh": round(kwh * 1000 * factor / total, 3),
+        }
+        for index, factor in enumerate(factors)
+    ]
+
+
 async def _upsert(
     session: AsyncSession, table, rows: list[dict], keys: list[str]
 ) -> None:
@@ -187,19 +256,25 @@ async def _upsert(
     await session.commit()
 
 
-async def _unseeded_interval_count(session: AsyncSession, system_id: int) -> int:
-    """Count production intervals on days this seeder never wrote.
+async def _unseeded_row_count(
+    session: AsyncSession, system_id: int, model, day_column
+) -> int:
+    """Count rows of one measurement table on days this seeder never wrote.
 
-    Every day the seeder covers also gets an irradiance row tagged SOURCE, so an
-    interval on a day without one came from real ingestion. That makes reseeding
-    an already-mocked database free, while a live install is recognised.
+    Every day the seeder covers also gets an irradiance row tagged SOURCE, so a
+    measurement on a day without one came from real ingestion. That makes
+    reseeding an already-mocked database free, while a live install is
+    recognised.
 
     Args:
         session: Active async database session.
-        system_id: System whose intervals to inspect.
+        model: The measurement model to count rows of.
+        system_id: System whose rows to inspect.
+        day_column: The model's calendar day, as a column or an expression that
+            reduces its timestamp to one.
 
     Returns:
-        Number of energy_intervals rows on days carrying no mock irradiance.
+        Number of rows on days carrying no mock irradiance.
     """
     seeded_days = select(Irradiance.day).where(
         Irradiance.system_id == system_id,
@@ -207,11 +282,8 @@ async def _unseeded_interval_count(session: AsyncSession, system_id: int) -> int
     )
     stmt = (
         select(func.count())
-        .select_from(EnergyInterval)
-        .where(
-            EnergyInterval.system_id == system_id,
-            func.date(EnergyInterval.interval_start).not_in(seeded_days),
-        )
+        .select_from(model)
+        .where(model.system_id == system_id, day_column.not_in(seeded_days))
     )
     return (await session.execute(stmt)).scalar_one()
 
@@ -221,8 +293,8 @@ async def seed_mock(
     system: System,
     years: int = DEFAULT_YEARS,
     seed: int = 42,
-) -> tuple[int, int]:
-    """Populate intervals, irradiance and summaries with synthetic data.
+) -> tuple[int, int, int]:
+    """Populate intervals, irradiance, panel readings and summaries.
 
     Existing rows for the same days are overwritten, so the command is safe to
     re-run. Summaries are rebuilt at the end so the dashboard has something to
@@ -234,6 +306,11 @@ async def seed_mock(
     upsert is keyed on the interval start, so the intervals already written are
     rewritten with the same values and the newly elapsed ones are added.
 
+    Every day also gets one row per microinverter, so the Panels heatmap renders
+    on mock data instead of showing its empty state. The fleet keeps its shape
+    across the whole range: a panel that is weak is weak on every day, which is
+    what the per-panel comparison is looking for.
+
     Args:
         session: Active async database session.
         system: The configured system to attach the data to.
@@ -241,15 +318,29 @@ async def seed_mock(
         seed: Seed for the cloud-cover noise, for reproducible data.
 
     Returns:
-        Tuple of (interval_rows, irradiance_rows) written.
+        Tuple of (interval_rows, irradiance_rows, panel_rows) written.
 
     Raises:
-        RealDataError: If the system already has production intervals this
-            seeder did not write, which is what a live install looks like.
+        RealDataError: If the system already has production intervals or panel
+            readings this seeder did not write, which is what a live install
+            looks like.
     """
-    unseeded = await _unseeded_interval_count(session, system.id)
-    if unseeded:
-        raise RealDataError(REAL_DATA_MESSAGE.format(unseeded))
+    unseeded_intervals = await _unseeded_row_count(
+        session, system.id, EnergyInterval, func.date(EnergyInterval.interval_start)
+    )
+    if unseeded_intervals:
+        raise RealDataError(
+            REAL_DATA_MESSAGE.format(
+                count=unseeded_intervals, rows="production intervals"
+            )
+        )
+    unseeded_readings = await _unseeded_row_count(
+        session, system.id, PanelReading, PanelReading.day
+    )
+    if unseeded_readings:
+        raise RealDataError(
+            REAL_DATA_MESSAGE.format(count=unseeded_readings, rows="panel readings")
+        )
 
     now = datetime.now(UTC)
     end = now.date()
@@ -257,10 +348,14 @@ async def seed_mock(
     # Today's own intervals stop at the cutoff; every prior day is whole.
     today_intervals = _elapsed_intervals(now)
     rng = random.Random(seed)
+    # Drawn once, before the per-day loop, so every day splits its output the
+    # same way and a weak panel stays the same panel across the whole range.
+    panel_factors = _panel_factors(system, rng)
     logger.info("Seeding mock data for system={} from {} to {}", system.id, start, end)
 
     intervals: list[dict] = []
     irradiance: list[dict] = []
+    panels: list[dict] = []
     day = start
     while day <= end:
         poa, production_kwh, weights = _day_profile(day, system, rng)
@@ -283,13 +378,23 @@ async def seed_mock(
                 "source": SOURCE,
             }
         )
+        # The panels split whatever the day actually produced, so today's
+        # truncated output is shared out rather than a whole day's, and the
+        # Panels tab agrees with the Overview on every day including this one.
+        panels.extend(
+            _panel_rows(system.id, day, production_kwh * elapsed, panel_factors)
+        )
         day += timedelta(days=1)
 
     await _upsert(session, EnergyInterval, intervals, ["system_id", "interval_start"])
     await _upsert(session, Irradiance, irradiance, ["system_id", "day", "source"])
+    await _upsert(session, PanelReading, panels, ["system_id", "panel_serial", "day"])
     logger.info(
-        "Wrote {} intervals and {} irradiance rows", len(intervals), len(irradiance)
+        "Wrote {} intervals, {} irradiance rows and {} panel readings",
+        len(intervals),
+        len(irradiance),
+        len(panels),
     )
 
     await rebuild_all_summaries(session, system)
-    return len(intervals), len(irradiance)
+    return len(intervals), len(irradiance), len(panels)

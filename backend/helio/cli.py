@@ -99,11 +99,16 @@ async def _rebuild_summaries(args: Namespace) -> None:
 
 
 async def _seed_mock(args: Namespace) -> None:
-    """Insert synthetic production and irradiance data for development."""
+    """Insert synthetic production, irradiance and per-panel data."""
     async with AsyncSessionLocal() as session:
         system = await _require_system(session)
-        intervals, irradiance = await seed_mock(session, system, years=args.years)
-    print(f"Seeded {intervals} intervals and {irradiance} irradiance days.")
+        intervals, irradiance, panels = await seed_mock(
+            session, system, years=args.years
+        )
+    print(
+        f"Seeded {intervals} intervals, {irradiance} irradiance days "
+        f"and {panels} panel readings."
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:

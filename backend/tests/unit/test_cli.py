@@ -101,12 +101,15 @@ def test_rebuild_summaries_reports_what_it_rebuilt(session, monkeypatch, capsys)
 def test_seed_mock_passes_the_requested_year_count(session, monkeypatch, capsys):
     system = MagicMock(id=1)
     _returns_system(session, system)
-    worker = AsyncMock(return_value=(96, 1))
+    worker = AsyncMock(return_value=(96, 1, 24))
     monkeypatch.setattr(cli, "seed_mock", worker)
 
     assert main(["seed-mock", "--years", "1"]) == 0
     worker.assert_awaited_once_with(session, system, years=1)
-    assert "Seeded 96 intervals and 1 irradiance days." in capsys.readouterr().out
+    assert (
+        "Seeded 96 intervals, 1 irradiance days and 24 panel readings."
+        in capsys.readouterr().out
+    )
 
 
 def test_seed_mock_explains_a_refusal_instead_of_raising(session, monkeypatch, logged):
