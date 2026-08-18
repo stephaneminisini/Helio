@@ -100,4 +100,4 @@ Helio Monitor is free and open source. If it saves you money by catching a degra
 
 ## License
 
-MIT — do whatever you want with it.
+MIT. Use it, change it, sell it; just keep the copyright notice. See [LICENSE](LICENSE).
