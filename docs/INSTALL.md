@@ -50,7 +50,7 @@ You need three things from Enphase before configuring Helio Monitor.
 1. In the developer portal, go to **My Apps → New App**
 2. Fill in the details:
    - **App Name:** Helio Monitor (or anything you like)
-   - **Redirect URI:** `http://localhost:8000/api/auth/callback`
+   - **Redirect URI:** `http://localhost:3000/api/auth/enphase/callback`
    - **Scopes:** Select `production`, `consumption`, `system`
 3. Click **Create**
 4. Copy your **Client ID** and **Client Secret**
@@ -108,7 +108,7 @@ POLL_HOUR=4                         # Hour to poll (24h, local time)
 TZ=America/Montreal                 # Your timezone
 
 # ── App ───────────────────────────────────────────────────────────
-VITE_API_BASE_URL=http://localhost:8000
+HELIO_PORT=3000
 ```
 
 ### Step 4 — Generate a Fernet key
@@ -187,8 +187,10 @@ Once complete, refresh the dashboard — all your historical data should be visi
 | Service | URL |
 |---------|-----|
 | Dashboard | [http://localhost:3000](http://localhost:3000) |
-| API | [http://localhost:8000](http://localhost:8000) |
+| API | [http://localhost:3000/api/health](http://localhost:3000/api/health) |
 | API Docs | [http://localhost:8000/docs](http://localhost:8000/docs) |
+
+The dashboard serves the app and proxies `/api` to the API, so port 3000 is the only one you need to reach — set `HELIO_PORT` to move it. The API's own port 8000 is published on `127.0.0.1` only, which is why the interactive docs are reachable from the machine running the stack and from nowhere else.
 
 ---
 
@@ -249,7 +251,7 @@ make down-full   # Stop containers AND delete all data ⚠️
 ### Enphase authorization keeps failing
 
 - Double-check your `ENPHASE_CLIENT_ID` and `ENPHASE_CLIENT_SECRET` in `.env`
-- Verify the redirect URI in your Enphase app matches `http://localhost:8000/api/auth/callback` exactly
+- Verify the redirect URI in your Enphase app matches `http://localhost:3000/api/auth/enphase/callback` exactly
 - Try revoking and re-authorizing in the Setup tab
 
 ### Database connection errors on startup
