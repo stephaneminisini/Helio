@@ -162,11 +162,15 @@ export function SetupPage() {
           Coordinates are required to fetch irradiance. Without them the
           irradiance poll is skipped and Performance Ratio stays unavailable.
         </p>
+        {/* step="any" on every decimal field: a number input defaults to step=1,
+            which makes the browser reject "7.6" as invalid and block submission.
+            Bounds mirror SettingsCreate so the form and the API agree. */}
         {field(
           "System Size (kW)",
           "system_size_kw",
           data?.system_size_kw ?? null,
-          "number"
+          "number",
+          { min: 0, max: 999, step: "any" }
         )}
         {field("Panel Count", "panel_count", data?.panel_count ?? null, "number")}
         {field(
@@ -180,14 +184,22 @@ export function SetupPage() {
           "Tilt Angle (deg)",
           "tilt_angle_deg",
           data?.tilt_angle_deg ?? null,
-          "number"
+          "number",
+          { min: 0, max: 90, step: "any" }
         )}
-        {field("Azimuth (deg)", "azimuth_deg", data?.azimuth_deg ?? null, "number")}
+        {field(
+          "Azimuth (deg)",
+          "azimuth_deg",
+          data?.azimuth_deg ?? null,
+          "number",
+          { min: 0, max: 360, step: "any" }
+        )}
         {field(
           "Degradation Rate (%/yr)",
           "degradation_rate",
           data?.degradation_rate ?? null,
-          "number"
+          "number",
+          { min: 0, max: 99, step: "any" }
         )}
         {field(
           "Warranty Threshold (%/yr)",

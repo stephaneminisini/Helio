@@ -51,10 +51,11 @@ Prefer to keep everything local? Full guide: [docs/deploy/raspberry-pi.md](docs/
 ```bash
 git clone https://github.com/stephaneminisini/Helio
 cd Helio
-cp .env.example .env
+make init          # copies .env.example to .env and generates FERNET_KEY
 # Edit .env with your Enphase credentials
 make up
 make migrate
+# Open http://localhost:3000, fill in the Setup tab, connect your Enphase account
 make backfill
 ```
 
@@ -80,7 +81,7 @@ Helio Monitor is free and open source. If it saves you money by catching a degra
 
 ## Tech Stack
 
-- **Backend:** Python 3.11, FastAPI, SQLAlchemy 2, APScheduler
+- **Backend:** Python 3.13, FastAPI, SQLAlchemy 2, APScheduler
 - **Database:** PostgreSQL 15
 - **Frontend:** React 18, Vite
 - **Deployment:** Docker, Docker Compose

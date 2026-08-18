@@ -240,7 +240,7 @@ generate-fernet-key: ## Generate a new Fernet encryption key for .env
 # ── Setup Helpers ─────────────────────────────────────────────────────────────
 
 .PHONY: init
-init: ## First-time setup: copy .env.example, generate key, start, migrate
+init: ## First-time setup: copy .env.example and generate FERNET_KEY
 	@if [ ! -f .env ]; then \
 		cp .env.example .env; \
 		echo "📝  Created .env from .env.example"; \
