@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+  The 1280x640 card GitHub renders when a link to the repo is unfurled.
+
+  Rendered to docs/assets/social-preview.png by scripts/capture-screenshots.mjs.
+  The dashboard image on the right is docs/assets/preview.png, so this card is
+  only as current as the last screenshot capture.
+
+  The card carries the product name because the unfurl replaces GitHub's default
+  card entirely: the repo header crop cannot do that job, its wordmark is 18px.
+
+  ASCII only, and no webfonts - the font stack is the one Tailwind gives the
+  dashboard, so the card and the screenshot beside it set type identically.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        width: 1280px;
+        height: 640px;
+        display: flex;
+        overflow: hidden;
+        background: #030712;
+        color: #ffffff;
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .copy {
+        flex: 0 0 620px;
+        padding: 64px 0 64px 64px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .wordmark {
+        color: #fbbf24;
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .tagline {
+        margin-top: 20px;
+        font-size: 52px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+      .tagline em {
+        color: #fbbf24;
+        font-style: normal;
+      }
+      .features {
+        margin-top: 36px;
+        list-style: none;
+        color: #9ca3af;
+        font-size: 21px;
+        line-height: 1.9;
+      }
+      .features li::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 14px;
+        border-radius: 50%;
+        background: #f59e0b;
+        vertical-align: 0.28em;
+      }
+      .footer {
+        margin-top: 40px;
+        color: #6b7280;
+        font-size: 18px;
+      }
+      /*
+        The screenshot runs off the right and bottom edges rather than being
+        fitted. An unfurl card is displayed small, so a legible slice of the real
+        dashboard reads better than the whole page shrunk to a thumbnail: at this
+        width the stat cards keep their own labels readable.
+      */
+      .shot {
+        position: relative;
+        flex: 1;
+        overflow: hidden;
+      }
+      .shot img {
+        position: absolute;
+        top: 52px;
+        left: 0;
+        width: 1700px;
+        border-radius: 10px 0 0 0;
+        border-top: 1px solid #1f2937;
+        border-left: 1px solid #1f2937;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="copy">
+      <div class="wordmark">Helio Monitor</div>
+      <h1 class="tagline">The solar dashboard <em>Enphase never built</em></h1>
+      <ul class="features">
+        <li>Today vs. the same day last year</li>
+        <li>Degradation tracked against your warranty</li>
+        <li>Panel-level heatmap</li>
+      </ul>
+      <div class="footer">Self-hosted. Your production data stays yours.</div>
+    </div>
+    <div class="shot">
+      <img src="../../docs/assets/preview.png" alt="" />
+    </div>
+  </body>
+</html>

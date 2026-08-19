@@ -192,6 +192,13 @@ e2e-system: ## Create the system row the smoke tests need (run before seed-mock)
 e2e: ## Run the Playwright smoke tests against the running stack
 	cd frontend && npm run e2e
 
+# The images are committed, so this must only ever run against a stack seeded by
+# make seed-mock. Anything visible on a real system's dashboard would be
+# published: system name, location and inverter serial numbers.
+.PHONY: screenshots
+screenshots: ## Recapture docs/assets from a seed-mock stack (never a real one)
+	cd frontend && node scripts/capture-screenshots.mjs
+
 # ── Updates ───────────────────────────────────────────────────────────────────
 
 .PHONY: update

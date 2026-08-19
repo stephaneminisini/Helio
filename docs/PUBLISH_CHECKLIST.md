@@ -78,7 +78,10 @@ On GitHub, after creating the repo:
       between Issues and Discussions on a low-traffic repo means one of the two goes
       unread. Support questions go in Issues under a `question` label. Revisit if the
       volume ever justifies it.
-- [ ] Add a social preview image (screenshot of the dashboard)
+- [ ] Upload `docs/assets/social-preview.png` under Settings -> General -> Social
+      preview. The file is committed and already the 1280x640 GitHub asks for, but
+      there is no API for this field, so it has to be uploaded by hand. Until it is,
+      link unfurls show GitHub's generic card.
 
 The website URL stays empty until there is somewhere real to point it. There is no
 demo instance, and the Buy Me a Coffee page does not exist yet.
@@ -88,7 +91,7 @@ demo instance, and the Buy Me a Coffee page does not exist yet.
 ## 6. Files Check
 
 - [x] `README.md` renders correctly on GitHub (badges, buttons, tables, and all
-      four screenshots load for a logged-out visitor)
+      three screenshots load for a logged-out visitor)
 - [x] `.env` is NOT present in the repo (only `.env.example`), and never was in
       any commit
 - [x] `.gitignore` is committed
@@ -142,7 +145,7 @@ following `README.md` and `docs/INSTALL.md` literally (issue #32).
       `gitleaks detect` over the full history reports no leaks, GitHub secret
       scanning reports no alerts, `.env` appears in no commit, and the test
       fixtures and coordinates are synthetic
-- [x] Open the GitHub repo as a logged-out user — README renders, all four
+- [x] Open the GitHub repo as a logged-out user — README renders, all three
       screenshots load, and every relative link resolves
 
 What else the dry run turned up, all fixed alongside this checklist:

@@ -18,6 +18,18 @@ Helio Monitor connects to your Enphase system and gives you the historical compa
 - **Panel heatmap** — Spot underperforming microinverters at a glance
 - **Owns your data** — Everything stored locally in PostgreSQL, no third-party cloud
 
+### Efficiency
+
+![The Helio Monitor Efficiency page, showing the Performance Ratio measured every month since install against the baseline the system was commissioned at, and the projection of that trend against the warranty threshold](docs/assets/efficiency.png)
+
+Performance Ratio is the share of the energy available to the array that it actually delivered, so it separates a real decline from a cloudy month. The baseline it is judged against is the system's own first year, not a theoretical 100%, and the dotted line projects the measured trend forward so you can see it against your warranty before the warranty expires.
+
+### Panels
+
+![The Helio Monitor Panels page, showing a heatmap of thirty microinverters with one flagged as underperforming and a callout naming it](docs/assets/panels.png)
+
+Every microinverter reports its own production, so a single shaded, soiled or failing panel shows up as a cold cell instead of disappearing into the system total.
+
 ---
 
 ## Deploy in One Click
