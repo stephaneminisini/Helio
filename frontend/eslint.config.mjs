@@ -42,5 +42,13 @@ export default tseslint.config(
     // and never run in the browser.
     files: ["e2e/**/*.ts", "playwright.config.ts"],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // The capture script is plain node run from the command line rather than
+    // bundled, and no block above matches .mjs, so without this it would be
+    // walked and have no rule applied to it at all.
+    files: ["scripts/**/*.mjs"],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globals.node },
   }
 );
