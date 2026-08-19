@@ -140,6 +140,19 @@ export function EfficiencyPage() {
           label="Warranty Threshold"
           value={`${degradation.warranty_threshold.toFixed(1)}%/yr`}
         />
+        {degradation.baseline_pr !== null && (
+          <StatCard
+            label="Baseline PR"
+            value={`${(degradation.baseline_pr * 100).toFixed(1)}%`}
+            // The anomaly flags and the lost-production figure both rest on this
+            // number, so the page states it and where it came from.
+            sub={
+              degradation.baseline_source === "configured"
+                ? "Configured for this system"
+                : "Measured from the first year"
+            }
+          />
+        )}
         {/* A healthy system has no anomalies, so the card only appears when
             there is something to report. */}
         {anomalies > 0 && (
@@ -181,6 +194,15 @@ export function EfficiencyPage() {
           Performance Ratio history (%)
           {projected && " - the dotted line ahead is projected, not measured"}
         </p>
+        {/* Without a baseline there is no expected line and no flag, so the page
+            says so rather than leaving the omission to be noticed. */}
+        {degradation.baseline_source === "none" && (
+          <p className="text-sm text-gray-500 mb-4">
+            No baseline yet - a full year of history is needed before a
+            Performance Ratio can be expected, so no month is flagged and nothing
+            is counted as lost. Set one on the Setup tab to start now.
+          </p>
+        )}
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData}>
             <XAxis

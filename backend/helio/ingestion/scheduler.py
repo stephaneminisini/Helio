@@ -5,7 +5,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 from sqlalchemy import select
 
-from helio.analytics.summarizer import build_daily_summary, build_monthly_summary
+from helio.analytics.summarizer import (
+    apply_expected_pr,
+    build_daily_summary,
+    build_monthly_summary,
+)
 from helio.core.config import settings
 from helio.db.models import System
 from helio.db.session import AsyncSessionLocal
@@ -131,6 +135,9 @@ async def run_daily_poll() -> None:
             prev_month = (yesterday - timedelta(days=1)).replace(day=1)
             try:
                 await build_monthly_summary(session, system.id, prev_month, system)
+                # The new month can be the one that completes the baseline year,
+                # which changes what is expected of every earlier month too.
+                await apply_expected_pr(session, system)
             except (RuntimeError, ValueError) as exc:
                 logger.error("Monthly summary build failed for {}: {}", prev_month, exc)
                 failed_steps.append("monthly_summary")

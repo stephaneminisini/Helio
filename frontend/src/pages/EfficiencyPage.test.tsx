@@ -40,6 +40,8 @@ function efficiency(
       exceeds_warranty: false,
       energy_rate_per_kwh: 0.15,
       energy_rate_currency: "USD",
+      baseline_pr: 0.82,
+      baseline_source: "measured",
       ...overrides,
     },
   };
@@ -117,6 +119,49 @@ describe("EfficiencyPage", () => {
     render(<EfficiencyPage />);
 
     expect(await screen.findByText("0.5%/yr")).toBeInTheDocument();
+  });
+
+  it("states the measured baseline the flags and the losses rest on", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({ baseline_pr: 0.815, baseline_source: "measured" })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText("Baseline PR")).toBeInTheDocument();
+    expect(screen.getByText("81.5%")).toBeInTheDocument();
+    expect(screen.getByText("Measured from the first year")).toBeInTheDocument();
+  });
+
+  it("says so when the baseline came from the system's own settings", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({ baseline_pr: 0.86, baseline_source: "configured" })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText("86.0%")).toBeInTheDocument();
+    expect(screen.getByText("Configured for this system")).toBeInTheDocument();
+  });
+
+  it("explains an absent baseline rather than silently flagging nothing", async () => {
+    stubFetch({
+      [EFFICIENCY_PATH]: response(
+        200,
+        efficiency({ baseline_pr: null, baseline_source: "none" })
+      ),
+    });
+
+    render(<EfficiencyPage />);
+
+    expect(await screen.findByText(/No baseline yet/)).toBeInTheDocument();
+    expect(screen.queryByText("Baseline PR")).not.toBeInTheDocument();
   });
 
   it("counts the flagged months without waiting for a hover", async () => {

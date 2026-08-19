@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helio.analytics.degradation import (
     calculate_annual_degradation,
     estimate_lost_production,
+    measured_baseline_pr,
     project_future_efficiency,
 )
 from helio.api.schemas.efficiency import (
@@ -57,6 +58,8 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
                 exceeds_warranty=False,
                 energy_rate_per_kwh=float(DEFAULT_ENERGY_RATE_PER_KWH),
                 energy_rate_currency=DEFAULT_ENERGY_RATE_CURRENCY,
+                baseline_pr=None,
+                baseline_source="none",
             ),
             projection=ProjectionSummary(
                 months_of_history=0,
@@ -98,6 +101,16 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
     lost = await estimate_lost_production(db, system.id, energy_rate)
     projection = await project_future_efficiency(db, system, PROJECTION_YEARS)
 
+    # Both the anomaly flags and the lost-production figure are measured against
+    # this, so the client is told what it was and where it came from.
+    baseline = await measured_baseline_pr(db, system)
+    if baseline is None:
+        baseline_source = "none"
+    elif system.baseline_pr is not None:
+        baseline_source = "configured"
+    else:
+        baseline_source = "measured"
+
     # The stored threshold is a percent per year; annual_drop is a difference of
     # Performance Ratio fractions, so the threshold is scaled to match.
     warranty_threshold = float(system.warranty_degradation_rate)
@@ -117,6 +130,8 @@ async def get_efficiency(db: AsyncSession = Depends(get_db)) -> EfficiencyRespon
             exceeds_warranty=exceeds,
             energy_rate_per_kwh=energy_rate,
             energy_rate_currency=system.energy_rate_currency,
+            baseline_pr=round(baseline, 4) if baseline is not None else None,
+            baseline_source=baseline_source,
         ),
         projection=ProjectionSummary(**projection),
     )

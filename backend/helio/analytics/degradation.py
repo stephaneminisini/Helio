@@ -9,6 +9,10 @@ from helio.db.models import MonthlySummary, System
 # A year of monthly points is the least that averages the seasons out; below it
 # a trend line mostly measures which months happen to be in the sample.
 MIN_MONTHS_FOR_CONFIDENCE = 12
+# The baseline window, for the same reason: Performance Ratio swings several
+# points with cell temperature, so a shorter window measures whichever seasons
+# the sample happens to cover rather than the system's own standard.
+BASELINE_MONTHS = 12
 DAYS_PER_YEAR = 365.25
 
 
@@ -52,6 +56,61 @@ async def calculate_annual_degradation(
         }
         prev_avg = avg_pr
     return output
+
+
+async def measured_baseline_pr(
+    session: AsyncSession,
+    system: System,
+) -> float | None:
+    """Return the Performance Ratio this system should be measured against.
+
+    A configured System.baseline_pr wins outright: that is the owner stating what
+    their install was commissioned to achieve, which a commissioning report gives
+    directly and which no amount of history should override.
+
+    Otherwise the baseline is the system's own first BASELINE_MONTHS of measured
+    PR, walked back up the degradation curve to the install date so that a
+    (1 - rate) ** years curve built on it starts where the system started.
+    Anchoring on the system's own output is the whole point: no array converts
+    every watt of irradiance into metered AC energy, so a PR of 1.0 is
+    unreachable and every month measured against it looks broken.
+
+    Args:
+        session: Active async database session.
+        system: System to derive the baseline for; read for its id, install date,
+            degradation rate and configured baseline.
+
+    Returns:
+        The expected PR at the install date, or None when the system has neither
+        a configured baseline nor a full year of measured months, in which case
+        there is no honest standard to compare it against yet.
+    """
+    if system.baseline_pr is not None:
+        return float(system.baseline_pr)
+
+    stmt = (
+        select(MonthlySummary)
+        .where(
+            MonthlySummary.system_id == system.id,
+            MonthlySummary.performance_ratio.is_not(None),
+        )
+        .order_by(MonthlySummary.month)
+        .limit(BASELINE_MONTHS)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    if len(rows) < BASELINE_MONTHS:
+        return None
+
+    ratios = [float(row.performance_ratio) for row in rows]
+    # The window's average belongs to the middle of the window rather than to the
+    # install date, so it is de-degraded by its own mean age before being used as
+    # the curve's starting point. The correction is small at ordinary degradation
+    # rates, but it is what stops the baseline from sitting half a year low.
+    mean_elapsed = sum(
+        (row.month - system.install_date).days / DAYS_PER_YEAR for row in rows
+    ) / len(rows)
+    rate = float(system.degradation_rate or 0) / 100
+    return sum(ratios) / len(ratios) / (1 - rate) ** mean_elapsed
 
 
 async def estimate_lost_production(

@@ -35,6 +35,7 @@ function buildPayload(fd: FormData): SettingsPayload {
     degradation_rate: text(fd, "degradation_rate"),
     warranty_degradation_rate: text(fd, "warranty_degradation_rate"),
     energy_rate_per_kwh: text(fd, "energy_rate_per_kwh"),
+    baseline_pr: text(fd, "baseline_pr"),
     // The API only accepts an uppercase ISO 4217 code, so "usd" is normalised
     // here rather than coming back as a 422.
     energy_rate_currency: text(fd, "energy_rate_currency")?.toUpperCase() ?? null,
@@ -224,10 +225,24 @@ export function SetupPage() {
             { maxLength: 3, placeholder: "USD" }
           )}
         </div>
+        {field(
+          "Baseline PR",
+          "baseline_pr",
+          data?.baseline_pr ?? null,
+          "number",
+          {
+            min: 0,
+            max: 1,
+            step: "any",
+            placeholder: "Blank to measure the first year",
+          }
+        )}
         <p className="text-xs text-gray-500">
           The warranty threshold flags an annual drop steeper than your modules
           are warranted for. The energy rate prices lost production on the
-          Efficiency page.
+          Efficiency page. The baseline is the Performance Ratio your array was
+          commissioned to reach, between 0 and 1: leave it blank and Helio
+          measures it from your own first year instead.
         </p>
         <div className="flex flex-col gap-1">
           <label

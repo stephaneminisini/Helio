@@ -15,6 +15,13 @@ from helio.db.session import get_db
 
 router = APIRouter()
 
+# Fields an update may set back to null. Everywhere else a null has to be dropped:
+# most of the nullable columns carry NOT NULL defaults, and the rest have never
+# been clearable through this endpoint. baseline_pr is different because null is
+# one of its two meaningful states - it means "measure the baseline from the
+# system's own first year" - so an override the owner cannot undo would be a trap.
+CLEARABLE_FIELDS = frozenset({"baseline_pr"})
+
 
 def _to_response(system: System) -> SettingsResponse:
     """Serialise a system row plus the Enphase connection state.
@@ -120,6 +127,10 @@ async def update_settings(
 ) -> SettingsResponse:
     """Update the system configuration.
 
+    Only the fields present in the request body are touched. A field sent as null
+    is ignored unless it is one of CLEARABLE_FIELDS, so a client cannot null out a
+    column that carries a NOT NULL default.
+
     Args:
         payload: Fields to update (all optional).
         db: Async database session (injected).
@@ -129,12 +140,16 @@ async def update_settings(
 
     Raises:
         HTTPException: 404 if no system is configured.
+        RequestValidationError: 422 if a value falls outside the bounds declared
+            on SettingsUpdate.
     """
     system = (await db.execute(select(System).limit(1))).scalar_one_or_none()
     if system is None:
         raise HTTPException(status_code=404, detail="No system configured")
 
-    for field, value in payload.model_dump(exclude_none=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if value is None and field not in CLEARABLE_FIELDS:
+            continue
         setattr(system, field, value)
 
     await db.commit()

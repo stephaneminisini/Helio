@@ -80,6 +80,7 @@ CREATE TABLE systems (
     warranty_degradation_rate NUMERIC(5, 3) NOT NULL DEFAULT 0.7,  -- %/yr
     energy_rate_per_kwh NUMERIC(8, 4) NOT NULL DEFAULT 0.15,
     energy_rate_currency VARCHAR(3) NOT NULL DEFAULT 'USD',  -- ISO 4217
+    baseline_pr         NUMERIC(6, 4),   -- commissioned PR; NULL = measure it
     irradiance_source   VARCHAR(32) DEFAULT 'nasa',
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()
@@ -172,6 +173,16 @@ CREATE TABLE monthly_summaries (
 CREATE INDEX idx_monthly_system_month
     ON monthly_summaries (system_id, month DESC);
 ```
+
+The baseline in `expected_pr` is the PR the array was commissioned to reach, not a
+perfect 1.0: no real installation converts every available watt, so anchoring on
+1.0 puts the expected curve permanently above the measured one and flags a healthy
+system every month. It comes from `systems.baseline_pr` when the owner set one on
+the Setup tab, and otherwise from the system's own first twelve months, with the
+degradation already accrued over that window added back so the figure represents
+day one rather than the middle of year one. Below twelve months of history there
+is no baseline, so `expected_pr` stays NULL, nothing is flagged and nothing is
+counted as lost until the system has a year behind it.
 
 ### 3.6 `poll_log`
 
@@ -333,7 +344,11 @@ ORDER BY yr;
 
 ### 5.7 `helio/analytics/summarizer.py`
 - `build_daily_summary(system_id, date)` — aggregates intervals
-- `build_monthly_summary(system_id, month)` — calculates PR, expected PR, anomaly flag
+- `build_monthly_summary(system_id, month)` — calculates the month's PR
+- `apply_expected_pr(system)` — a separate pass over the whole series, because the
+  baseline is derived from the first year and so cannot be known while a single
+  month is being built. Writes `expected_pr`, `is_anomaly` and `anomaly_reason`,
+  and clears a flag an earlier run left behind
 - `calculate_degradation(system_id)` — returns annual rate vs. warranty threshold
 
 ### 5.8 `helio/analytics/anomaly.py`
@@ -355,7 +370,9 @@ ORDER BY yr;
   marks with a dot and repeats in the tooltip. The `projection` block extends the
   fitted PR trend five years past the last measured year, carries its own
   `low_confidence` flag below twelve months of history, and names the
-  `warranty_breach_year` when the trend falls below the warranted curve
+  `warranty_breach_year` when the trend falls below the warranted curve. The
+  `degradation` block reports the `baseline_pr` the flags and the lost-production
+  figure rest on, and a `baseline_source` of `configured`, `measured` or `none`
 - `GET /api/panels?days=30` — per-panel production, the fleet average and
   standard deviation, and the underperforming flag. Answers 200 with
   `data_available: false` and a reason when there is nothing to show

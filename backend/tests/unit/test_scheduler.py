@@ -86,6 +86,7 @@ def poll_env(monkeypatch):
             "poll_irradiance",
             "build_daily_summary",
             "build_monthly_summary",
+            "apply_expected_pr",
         )
     }
     for name, mock in steps.items():
@@ -330,8 +331,9 @@ async def test_daily_poll_records_a_failed_step_and_carries_on(
 
     await scheduler.run_daily_poll()
 
+    # The month-end steps only run on the first, and these cases are mid-month.
     for name, mock in steps.items():
-        if name != "build_monthly_summary":
+        if name not in ("build_monthly_summary", "apply_expected_pr"):
             mock.assert_awaited_once()
     failures = [line for line in logged if "completed with failures" in line]
     assert len(failures) == 1
