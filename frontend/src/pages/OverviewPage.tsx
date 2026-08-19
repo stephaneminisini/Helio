@@ -1,3 +1,4 @@
+import { OverviewData } from "../api/client";
 import { ComparisonBar } from "../components/ComparisonBar";
 import { StatCard } from "../components/StatCard";
 import { YtdHistory } from "../components/YtdHistory";
@@ -7,15 +8,24 @@ import { useOverview } from "../hooks/useOverview";
  * Caption for the live power card.
  *
  * A reading is only meaningful with the time it was taken: an envoy reports in
- * batches, so a figure on its own cannot be told apart from a stale one.
+ * batches, so a figure on its own cannot be told apart from a stale one. A
+ * stored reading says so outright, because it is the average over the last
+ * recorded interval rather than what the array is doing now.
  */
-function livePowerSub(watts: number | null, reportedAt: string | null): string {
+function livePowerSub(
+  watts: number | null,
+  reportedAt: string | null,
+  source: OverviewData["current_power_source"]
+): string {
   if (watts === null) return "Enphase did not report a reading";
   if (reportedAt === null) return "Reported without a timestamp";
-  return `Measured at ${new Date(reportedAt).toLocaleTimeString([], {
+  const at = new Date(reportedAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
-  })}`;
+  });
+  return source === "stored"
+    ? `Last recorded at ${at}, Enphase unreachable`
+    : `Measured at ${at}`;
 }
 
 export function OverviewPage() {
@@ -43,7 +53,11 @@ export function OverviewPage() {
               ? `${data.current_power_w.toFixed(0)} W`
               : "Unavailable"
           }
-          sub={livePowerSub(data.current_power_w, data.current_power_at)}
+          sub={livePowerSub(
+            data.current_power_w,
+            data.current_power_at,
+            data.current_power_source
+          )}
         />
         <StatCard
           label="All Time"

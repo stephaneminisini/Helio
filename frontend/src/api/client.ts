@@ -17,10 +17,16 @@ export interface YtdPoint {
 export interface OverviewData {
   today: string;
   today_kwh: number;
-  /** Latest reported output, null when Enphase could not be reached. */
+  /** Latest output, null when there is neither a live nor a recent stored one. */
   current_power_w: number | null;
-  /** When the envoy measured that output, as an ISO timestamp. */
+  /** When that output was measured, as an ISO timestamp. */
   current_power_at: string | null;
+  /**
+   * Where the figure came from: "live" is a reading fetched from Enphase,
+   * "stored" the mean over the last recorded interval, standing in while
+   * Enphase cannot be reached. A stored figure must not be shown as current.
+   */
+  current_power_source: "live" | "stored" | null;
   day_comparison: ComparisonPair;
   day_vs_last_month: ComparisonPair;
   month_comparison: ComparisonPair;

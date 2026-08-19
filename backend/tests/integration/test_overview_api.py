@@ -9,7 +9,7 @@ from helio.api.main import app
 from helio.api.routes import overview as overview_route
 from helio.db.models import System
 from helio.db.session import get_db
-from helio.ingestion.enphase_client import CurrentProduction
+from helio.ingestion.live_power import LivePower
 
 
 def _fake_db(
@@ -461,8 +461,10 @@ async def test_overview_reports_the_live_reading_with_its_timestamp(
     """AC1: the latest output, together with the time it was measured."""
     pinned_today(date(2025, 7, 12))
     live_reading(
-        CurrentProduction(
-            watts=4210.0, reported_at=datetime(2025, 7, 12, 13, 0, tzinfo=UTC)
+        LivePower(
+            watts=4210.0,
+            reported_at=datetime(2025, 7, 12, 13, 0, tzinfo=UTC),
+            source="live",
         )
     )
     session = _fake_db({date(2025, 7, 12): 30.0})
@@ -473,6 +475,34 @@ async def test_overview_reports_the_live_reading_with_its_timestamp(
     data = response.json()
     assert data["current_power_w"] == 4210.0
     assert data["current_power_at"] == "2025-07-12T13:00:00Z"
+    assert data["current_power_source"] == "live"
+
+
+@pytest.mark.asyncio
+async def test_overview_labels_a_stored_reading_as_stored(pinned_today, live_reading):
+    """A recorded figure must reach the client marked as one, not as the current output.
+
+    The client cannot tell the two apart from the number alone, and captioning a
+    reading from an hour ago as "measured now" would be a worse bug than the
+    blank card the fallback replaces.
+    """
+    pinned_today(date(2025, 7, 12))
+    live_reading(
+        LivePower(
+            watts=4000.0,
+            reported_at=datetime(2025, 7, 12, 12, 45, tzinfo=UTC),
+            source="stored",
+        )
+    )
+    session = _fake_db({date(2025, 7, 12): 30.0})
+
+    async with _client_with_db(session) as client:
+        response = await client.get("/api/overview")
+
+    data = response.json()
+    assert data["current_power_w"] == 4000.0
+    assert data["current_power_at"] == "2025-07-12T12:45:00Z"
+    assert data["current_power_source"] == "stored"
 
 
 @pytest.mark.asyncio
@@ -488,6 +518,7 @@ async def test_overview_serves_the_history_without_a_live_reading(pinned_today):
     data = response.json()
     assert data["current_power_w"] is None
     assert data["current_power_at"] is None
+    assert data["current_power_source"] is None
     assert data["today_kwh"] == 30.0
 
 
