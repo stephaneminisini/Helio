@@ -111,4 +111,4 @@ If this project has been useful to you but you don't want to contribute code, co
 
 - ⭐ Starring the repo
 - Sharing it with other solar owners
-- [Buying me a coffee](https://www.buymeacoffee.com/YOUR_USERNAME)
+- [Buying me a coffee](https://buymeacoffee.com/stephaneminisini)

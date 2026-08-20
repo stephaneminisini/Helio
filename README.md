@@ -32,33 +32,10 @@ Every microinverter reports its own production, so a single shaded, soiled or fa
 
 ---
 
-## Deploy in One Click
+## Install
 
-### DigitalOcean (Recommended)
-
-[![Deploy to DigitalOcean](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/stephaneminisini/Helio)
-
-> 🎁 New to DigitalOcean? Use the referral link below for **$200 free credit** — enough to run Helio Monitor for months.
->
-> **[→ Get $200 free credit on DigitalOcean](https://m.do.co/c/YOUR_REFERRAL_CODE)**
-
-Full guide: [docs/deploy/digitalocean.md](docs/deploy/digitalocean.md)
-
-### Railway
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/stephaneminisini/Helio)
-
-> 🎁 New to Railway? Sign up with this link and get **$5 free credit**.
->
-> **[→ Sign up on Railway](https://railway.app?referralCode=YOUR_CODE)**
-
-Full guide: [docs/deploy/railway.md](docs/deploy/railway.md)
-
-### Self-Host (Raspberry Pi / Home Server)
-
-Prefer to keep everything local? Full guide: [docs/deploy/raspberry-pi.md](docs/deploy/raspberry-pi.md)
-
-### Manual Docker Install
+Helio Monitor runs on Docker Compose, on anything from a Raspberry Pi to a
+cloud VM.
 
 ```bash
 git clone https://github.com/stephaneminisini/Helio
@@ -71,7 +48,9 @@ make migrate
 make backfill
 ```
 
-Full guide: [docs/INSTALL.md](docs/INSTALL.md)
+Full guide: [docs/INSTALL.md](docs/INSTALL.md). Keeping it on hardware you own?
+[docs/deploy/raspberry-pi.md](docs/deploy/raspberry-pi.md) covers the Pi and
+home-server case, including remote access over Tailscale.
 
 ---
 
@@ -87,7 +66,7 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 Helio Monitor is free and open source. If it saves you money by catching a degrading panel early — or just makes your mornings a little more satisfying — consider buying me a coffee.
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/YOUR_USERNAME)
+[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=stephaneminisini&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff)](https://buymeacoffee.com/stephaneminisini)
 
 ---
 
@@ -105,8 +84,6 @@ Helio Monitor is free and open source. If it saves you money by catching a degra
 | Document | Description |
 |----------|-------------|
 | [docs/INSTALL.md](docs/INSTALL.md) | Full manual installation guide |
-| [docs/deploy/digitalocean.md](docs/deploy/digitalocean.md) | DigitalOcean one-click deploy |
-| [docs/deploy/railway.md](docs/deploy/railway.md) | Railway one-click deploy |
 | [docs/deploy/raspberry-pi.md](docs/deploy/raspberry-pi.md) | Raspberry Pi / home server |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables explained |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | How to contribute |
