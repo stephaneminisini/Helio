@@ -65,6 +65,50 @@ export function toChartData(
   ];
 }
 
+/** The narrowest span the y axis is allowed to cover, in percentage points.
+ * A flat series has nothing to show, and an axis padded tightly around it would
+ * magnify ordinary month-to-month noise into an apparent cliff. Four points is
+ * wide enough that noise stays noise, and narrow enough that the ~1.5 points a
+ * three year old system has actually lost fills a third of the plot. */
+const MIN_SPAN = 4;
+
+/** How much of the data's own range to add as breathing room at each end, once
+ * the range is already wider than MIN_SPAN. */
+const PAD_FRACTION = 0.15;
+
+/**
+ * Choose the y axis domain for the Performance Ratio chart.
+ *
+ * The axis used to be fixed at 60-100. Real degradation is roughly half a point
+ * a year, so three years of decline moved under 4% of the plot height and the
+ * measured, expected and projected lines were one flat stroke: a chart that
+ * could not show the thing it exists to show. Padding around the data instead
+ * makes the slope legible, and the MIN_SPAN floor is what stops that from
+ * turning a healthy flat system into an alarming one.
+ *
+ * Every series is included, so the measured line, the expected line and the
+ * projection stay comparable on one scale rather than each being framed
+ * flatteringly. The lower bound is clamped at 0 because a negative PR is not a
+ * thing; the upper bound is left free so a system above 100% is not clipped.
+ *
+ * @param points The plotted months and projected years.
+ * @returns A [min, max] pair spanning at least MIN_SPAN, or the historical
+ *   60-100 when there is nothing plotted to measure.
+ */
+export function prAxisDomain(points: PRChartPoint[]): [number, number] {
+  const values = points
+    .flatMap((p) => [p.pr, p.expected, p.projected])
+    .filter((v): v is number => v !== null && Number.isFinite(v));
+  if (values.length === 0) return [60, 100];
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  const pad = Math.max(span * PAD_FRACTION, (MIN_SPAN - span) / 2);
+  // Rounding outwards only ever widens, so the MIN_SPAN guarantee survives it.
+  return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)];
+}
+
 /**
  * Draw a dot only on flagged months, so an anomaly stands out against a line
  * that is otherwise bare. Recharts calls this once per point and requires an
@@ -210,9 +254,7 @@ export function EfficiencyPage() {
               tick={{ fill: "#9ca3af", fontSize: 11 }}
             />
             <YAxis
-              // 60 is the usual floor, but a projection heading below it has to
-              // stay on the chart rather than being clipped away.
-              domain={[(dataMin: number) => Math.min(60, Math.floor(dataMin)), 100]}
+              domain={prAxisDomain(chartData)}
               tick={{ fill: "#9ca3af", fontSize: 11 }}
             />
             <Tooltip content={<PRTooltip />} />
