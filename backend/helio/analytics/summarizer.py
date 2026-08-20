@@ -1,6 +1,9 @@
-from calendar import monthrange
+from calendar import month_name, monthrange
+from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import Decimal
+from statistics import median
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -19,6 +22,13 @@ from helio.db.models import (
 # Named here because the whole point of the baseline work is that this number is
 # meaningful: against an unreachable expected PR it was exceeded every month.
 ANOMALY_DROP = 0.015
+
+MONTHS_IN_YEAR = 12
+# How many times a calendar month must have been measured before its own share of
+# the year is worth deriving. Two is the least that can tell a repeating season
+# from one unusual month; below it the "shape" would just be the first year's
+# weather, which is what the fallback exists to avoid inventing.
+SEASONAL_MIN_YEARS = 2
 
 
 async def build_daily_summary(
@@ -252,6 +262,68 @@ async def build_monthly_summary(
     return row
 
 
+def _seasonal_factors(
+    rows: Sequence[MonthlySummary],
+    baseline: float,
+    deg_rate: float,
+    install_date: date,
+) -> dict[int, float] | None:
+    """Derive what each calendar month normally returns, relative to the year.
+
+    Performance Ratio is not flat across the year on a healthy array. Cell
+    temperature alone moves it several points - modules run well above ambient in
+    midsummer, and an ordinary temperature coefficient puts a July PR below the
+    annual mean on a system with nothing wrong with it - and soiling and low
+    winter sun angles push it further. The baseline is the mean over a whole
+    year, so measuring every month against it flags the summer of every year.
+
+    Each month is divided by the trend value expected at its own age, which
+    removes the degradation and leaves only the season. The samples for one
+    calendar month are then reduced by their median rather than their mean, so a
+    single bad July is outvoted once a third year exists rather than quietly
+    becoming the standard July is judged against.
+
+    The factors are finally divided by their own mean, which is what keeps this a
+    redistribution rather than a re-baselining: the correction can move where
+    across the year the expected PR sits, but not the level it averages, so a
+    system genuinely losing output year-round still falls below the curve in
+    every month instead of having the loss absorbed.
+
+    Args:
+        rows: Every stored month for the system, in any order. Months without a
+            measured ratio are ignored.
+        baseline: The system's PR at install, from measured_baseline_pr.
+        deg_rate: Annual degradation rate as a fraction, e.g. 0.005.
+        install_date: The date the trend is measured from.
+
+    Returns:
+        A multiplier per calendar month, keyed 1-12 and averaging 1.0, or None
+        when any calendar month has been measured fewer than SEASONAL_MIN_YEARS
+        times. None means the caller should compare against the annual mean, the
+        behaviour that applied before a seasonal shape could be known.
+    """
+    by_month: dict[int, list[float]] = defaultdict(list)
+    for row in rows:
+        if row.performance_ratio is None:
+            continue
+        elapsed = (row.month - install_date).days / DAYS_PER_YEAR
+        trend = baseline * (1 - deg_rate) ** elapsed
+        if trend <= 0:
+            continue
+        by_month[row.month.month].append(float(row.performance_ratio) / trend)
+
+    if len(by_month) < MONTHS_IN_YEAR or any(
+        len(samples) < SEASONAL_MIN_YEARS for samples in by_month.values()
+    ):
+        return None
+
+    factors = {month: median(samples) for month, samples in by_month.items()}
+    mean_factor = sum(factors.values()) / len(factors)
+    if mean_factor <= 0:
+        return None
+    return {month: factor / mean_factor for month, factor in factors.items()}
+
+
 async def apply_expected_pr(session: AsyncSession, system: System) -> int:
     """Set expected PR and the anomaly flag on every stored month.
 
@@ -265,6 +337,11 @@ async def apply_expected_pr(session: AsyncSession, system: System) -> int:
     unflagged. That is deliberate: the alternative is inventing a standard, and an
     unreachable one flags every month for every system forever, which is what this
     replaced.
+
+    Once every calendar month has been measured SEASONAL_MIN_YEARS times, the
+    curve is also shaped by the season, so a month is judged against what that
+    month of the year normally returns for this system rather than against the
+    annual mean. Below that history the annual mean is used unchanged.
 
     Args:
         session: Active async database session.
@@ -288,6 +365,11 @@ async def apply_expected_pr(session: AsyncSession, system: System) -> int:
     )
 
     deg_rate = float(system.degradation_rate or 0) / 100
+    factors = (
+        None
+        if baseline is None
+        else _seasonal_factors(rows, baseline, deg_rate, system.install_date)
+    )
     flagged = 0
     for row in rows:
         row.expected_pr = None
@@ -297,7 +379,8 @@ async def apply_expected_pr(session: AsyncSession, system: System) -> int:
             continue
 
         years_since_install = (row.month - system.install_date).days / DAYS_PER_YEAR
-        expected = round(baseline * (1 - deg_rate) ** years_since_install, 4)
+        season = 1.0 if factors is None else factors[row.month.month]
+        expected = round(baseline * (1 - deg_rate) ** years_since_install * season, 4)
         row.expected_pr = Decimal(str(expected))
         if row.performance_ratio is None:
             continue
@@ -305,17 +388,25 @@ async def apply_expected_pr(session: AsyncSession, system: System) -> int:
         drop = expected - float(row.performance_ratio)
         if drop > ANOMALY_DROP:
             row.is_anomaly = True
+            measured = f"PR {float(row.performance_ratio):.1%} is {drop:.1%} below"
+            # Naming the month matters once the curve is seasonal: the reader has
+            # to know the figure it fell short of is what this system does in this
+            # month, not the flat annual average it would beat in June anyway.
             row.anomaly_reason = (
-                f"PR {float(row.performance_ratio):.1%} is {drop:.1%} "
-                f"below expected {expected:.1%}"
+                f"{measured} expected {expected:.1%}"
+                if factors is None
+                else f"{measured} the {expected:.1%} expected "
+                f"for {month_name[row.month.month]}"
             )
             flagged += 1
 
     await session.commit()
     logger.info(
-        "Expected PR applied for system={} baseline={} months={} flagged={}",
+        "Expected PR applied for system={} baseline={} seasonal={} "
+        "months={} flagged={}",
         system.id,
         baseline,
+        factors is not None,
         len(rows),
         flagged,
     )
