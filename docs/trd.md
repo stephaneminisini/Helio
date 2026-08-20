@@ -184,6 +184,32 @@ day one rather than the middle of year one. Below twelve months of history there
 is no baseline, so `expected_pr` stays NULL, nothing is flagged and nothing is
 counted as lost until the system has a year behind it.
 
+`expected_pr` also accounts for the season, because Performance Ratio is not flat
+across the year on a healthy array. Cell temperature alone moves it several
+points - modules run well above ambient in midsummer, and an ordinary temperature
+coefficient puts a July PR below the annual mean on a system with nothing wrong
+with it - while soiling in dry months and low winter sun angles push it further.
+The baseline is a whole-year mean by construction, so comparing every month
+against it flags the summer of every year and misses a year-round loss in a mild
+month.
+
+The correction is measured from the system's own history rather than modelled.
+Each stored month is divided by the trend value expected at its age, which leaves
+only the season; the samples for one calendar month are reduced by their median,
+so one bad July is outvoted rather than becoming the standard July is judged
+against. The twelve factors are then divided by their own mean, which keeps the
+correction a redistribution: it changes where across the year the expected curve
+sits, never the level it averages, so a system losing output in every month still
+falls below the curve in every month.
+
+A calendar month needs at least two measurements before its factor is used, and
+the correction is all-or-nothing across the year: until every month has been seen
+twice, `expected_pr` is the annual mean alone. A single incomplete year is one
+year of weather, not a seasonal shape, and inventing one from it would be the
+same class of error as anchoring the baseline on 1.0. When the seasonal curve is
+in use, `anomaly_reason` names the month it fell short of rather than the annual
+average.
+
 ### 3.6 `poll_log`
 
 Audit log for all API polling activity.

@@ -1,3 +1,4 @@
+import math
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -434,3 +435,128 @@ async def test_apply_expected_pr_uses_a_configured_baseline_over_the_history():
     flagged = await apply_expected_pr(_series_session(rows), system)
 
     assert flagged == len(rows)
+
+
+# A seasonal swing of this size is ordinary rather than extreme: cell temperature
+# alone moves PR several points between midwinter and midsummer, and the whole
+# point of #76 is that a fixed 1.5 point threshold cannot survive it.
+SEASONAL_AMPLITUDE = 0.04
+
+
+def _season(month: int) -> float:
+    """The share of the annual mean this calendar month normally returns.
+
+    A cosine trough in July and peak in January, which averages to 1.0 over a
+    full year, so a system following it exactly has no year-round loss to find.
+    """
+    return 1 - SEASONAL_AMPLITUDE * math.cos(2 * math.pi * (month - 7) / 12)
+
+
+def _seasonal_months(count: int) -> list[MagicMock]:
+    """`count` monthly rows following the degradation curve and the season.
+
+    Nothing is wrong with this system: it degrades exactly as configured, and
+    its summers are lower than its winters the way every real array's are.
+    """
+    rows = []
+    for offset in range(count):
+        month = date(INSTALL_DATE.year + offset // 12, offset % 12 + 1, 1)
+        elapsed = (month - INSTALL_DATE).days / 365.25
+        row = MagicMock(spec=MonthlySummary)
+        row.month = month
+        row.production_kwh = Decimal("900")
+        row.performance_ratio = Decimal(
+            str(
+                round(
+                    TRUE_BASELINE
+                    * (1 - DEGRADATION_RATE) ** elapsed
+                    * _season(month.month),
+                    4,
+                )
+            )
+        )
+        row.expected_pr = None
+        row.is_anomaly = False
+        row.anomaly_reason = None
+        rows.append(row)
+    return rows
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_flags_no_month_on_a_healthy_seasonal_system():
+    """AC1: an ordinary summer dip on a sound array is not an anomaly.
+
+    Against the annual mean these months are flagged every year, which is the
+    bug: the mean sits above every summer by construction.
+    """
+    rows = _seasonal_months(36)
+
+    flagged = await apply_expected_pr(
+        _series_session(rows, window=rows[:12]), _system_on_the_curve()
+    )
+
+    assert flagged == 0
+    assert not any(row.is_anomaly for row in rows)
+    # The expected curve now follows the season rather than cutting across it,
+    # so it lands on each month's own measured ratio.
+    for row in rows:
+        assert float(row.expected_pr) == pytest.approx(
+            float(row.performance_ratio), abs=0.005
+        )
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_flags_a_month_that_missed_its_own_season():
+    """AC2: a real shortfall is still caught, and the reason names the season."""
+    rows = _seasonal_months(36)
+    # The third July, five points below what this system's Julys return. That is
+    # still well above its own January, so only a seasonal expectation finds it.
+    bad = next(row for row in rows if row.month == date(2022, 7, 1))
+    bad.performance_ratio = Decimal(str(round(float(bad.performance_ratio) - 0.05, 4)))
+
+    flagged = await apply_expected_pr(
+        _series_session(rows, window=rows[:12]), _system_on_the_curve()
+    )
+
+    assert flagged == 1
+    assert bad.is_anomaly is True
+    assert "expected for July" in bad.anomaly_reason
+    assert not any(row.is_anomaly for row in rows if row is not bad)
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_invents_no_season_from_a_single_year():
+    """AC3: below two measurements of a month there is no shape worth trusting.
+
+    Asserted as the shape of the expected curve rather than as a flag count: a
+    pure degradation curve only ever falls, so an expected series that never
+    rises is proof no season was read into one year of weather.
+    """
+    rows = _seasonal_months(18)
+
+    await apply_expected_pr(
+        _series_session(rows, window=rows[:12]), _system_on_the_curve()
+    )
+
+    expected = [float(row.expected_pr) for row in rows]
+    assert all(later <= earlier for earlier, later in zip(expected, expected[1:]))
+
+
+@pytest.mark.asyncio
+async def test_apply_expected_pr_keeps_a_year_round_loss_out_of_the_season():
+    """A uniform shortfall must survive the correction, or it hides real faults.
+
+    The factors are normalised to average 1.0 precisely so that a system losing
+    output in every month has nothing to redistribute the loss into.
+    """
+    rows = _seasonal_months(36)
+    for row in rows[12:]:
+        row.performance_ratio = Decimal(
+            str(round(float(row.performance_ratio) - 0.03, 4))
+        )
+
+    flagged = await apply_expected_pr(
+        _series_session(rows, window=rows[:12]), _system_on_the_curve()
+    )
+
+    assert flagged > 0
