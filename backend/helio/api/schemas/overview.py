@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -31,11 +32,17 @@ class OverviewResponse(BaseModel):
 
     today: date
     today_kwh: float
-    # The latest output Enphase reported, and when the envoy measured it. Both
-    # are null when the reading cannot be fetched, which must not cost the
+    # The system's latest output and when it was measured. current_power_source
+    # says where it came from: "live" is a reading fetched from Enphase, "stored"
+    # the mean over the last recorded interval, used when Enphase cannot be
+    # reached. A stored figure must be presented as recorded rather than current,
+    # so the client is told which it has rather than left to guess.
+    #
+    # All three are null when neither is available, which must not cost the
     # caller the stored history in the rest of this payload.
     current_power_w: float | None
     current_power_at: datetime | None
+    current_power_source: Literal["live", "stored"] | None
     day_comparison: ComparisonPair
     day_vs_last_month: ComparisonPair
     month_comparison: ComparisonPair

@@ -359,8 +359,10 @@ ORDER BY yr;
   panels is reported without flags rather than judged on a degenerate spread.
 
 ### 5.9 `helio/api/routes/`
-- `GET /api/overview` — live current power with the time it was measured (both
-  null when Enphase cannot be reached), today's stats, four comparison pairs
+- `GET /api/overview` — the latest current power with the time it was measured
+  and a `current_power_source` of `live` or `stored` (all three null when
+  Enphase cannot be reached and no recent interval is stored), today's stats,
+  four comparison pairs
   (day vs last year, day vs last month, month vs last month, month vs same
   month last year) and a year-to-date series: one entry per year since install,
   each 1 January through the anchor's day of that year, with the current year's
@@ -420,6 +422,16 @@ ORDER BY yr;
 - Simultaneous callers share one upstream call, and every upstream or
   credential failure resolves to None rather than propagating, so a missing
   reading never costs the caller the stored history around it
+- A failed fetch falls back to the newest stored interval, reported as the mean
+  power over it (`production_wh` over `duration_seconds`) rather than an
+  instantaneous figure. The fallback is refused when the interval started more
+  than `MAX_STORED_AGE` (1 hour) ago, or recorded no production or no duration:
+  an hour absorbs a few missed envoy reports, while a staler figure on the
+  largest card on the page is worse than an honest blank
+- The returned `LivePower` names its `source`, `live` or `stored`, and the
+  overview passes it through as `current_power_source` so a recorded reading is
+  captioned as recorded rather than as the current output. The fallback sits
+  outside the cache, since a poll can land while a failure is still remembered
 
 ---
 

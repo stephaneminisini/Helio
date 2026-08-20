@@ -20,6 +20,7 @@ function overview(overrides: Partial<OverviewData> = {}): OverviewData {
     today_kwh: 30,
     current_power_w: 4210,
     current_power_at: "2025-07-12T13:00:00Z",
+    current_power_source: "live",
     day_comparison: pair(30, 20, 50),
     day_vs_last_month: pair(30, 24, 25),
     month_comparison: pair(400, 320, 25),
@@ -113,11 +114,34 @@ describe("OverviewPage", () => {
     expect(within(live).getByText(/Measured at \d{2}:\d{2}/)).toBeInTheDocument();
   });
 
+  it("says a stored reading was recorded rather than measured now", async () => {
+    stubFetch({
+      [OVERVIEW_PATH]: response(
+        200,
+        overview({ current_power_w: 4000, current_power_source: "stored" })
+      ),
+    });
+
+    render(<OverviewPage />);
+
+    expect(await screen.findByText("4000 W")).toBeInTheDocument();
+    // The clock is rendered in the viewer's locale, so only the wording either
+    // side of it is predictable here.
+    const live = card("Current Power");
+    expect(
+      within(live).getByText(/Last recorded at .+, Enphase unreachable/)
+    ).toBeInTheDocument();
+  });
+
   it("shows the live reading as unavailable when Enphase reported nothing", async () => {
     stubFetch({
       [OVERVIEW_PATH]: response(
         200,
-        overview({ current_power_w: null, current_power_at: null })
+        overview({
+          current_power_w: null,
+          current_power_at: null,
+          current_power_source: null,
+        })
       ),
     });
 

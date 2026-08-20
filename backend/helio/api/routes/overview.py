@@ -86,6 +86,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
             today_kwh=0.0,
             current_power_w=None,
             current_power_at=None,
+            current_power_source=None,
             day_comparison=_pair(0.0, None),
             day_vs_last_month=_pair(0.0, None),
             month_comparison=_pair(0.0, None),
@@ -196,7 +197,8 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
     )
 
     # Served from a cache, so a dashboard left open does not spend the Enphase
-    # request quota, and returns None rather than raising when Enphase is down.
+    # request quota. Falls back to the last recorded interval when Enphase is
+    # down, and returns None rather than raising when there is neither.
     live_power = await get_live_power(db, system)
 
     today_kwh = today_kwh_raw if today_kwh_raw is not None else 0.0
@@ -208,6 +210,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> OverviewResponse:
         today_kwh=today_kwh,
         current_power_w=live_power.watts if live_power else None,
         current_power_at=live_power.reported_at if live_power else None,
+        current_power_source=live_power.source if live_power else None,
         day_comparison=_pair(today_kwh, last_year_day_kwh),
         day_vs_last_month=_pair(today_kwh, last_month_day_kwh),
         month_comparison=_pair(this_month or 0.0, last_month),
