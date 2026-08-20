@@ -11,6 +11,7 @@ import {
   anomalyDot,
   EfficiencyPage,
   PRChartPoint,
+  prAxisDomain,
   PRTooltip,
   toChartData,
 } from "./EfficiencyPage";
@@ -415,5 +416,95 @@ describe("PRTooltip", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("prAxisDomain", () => {
+  /** Plot a measured series, optionally against an expected one. */
+  function points(
+    pr: (number | null)[],
+    expected: (number | null)[] = []
+  ): PRChartPoint[] {
+    return pr.map((value, index) => ({
+      month: `2020-${String(index + 1).padStart(2, "0")}`,
+      pr: value,
+      expected: expected[index] ?? null,
+      projected: null,
+      isAnomaly: false,
+      reason: null,
+    }));
+  }
+
+  it("gives three years of real decline a legible share of the plot", () => {
+    // Half a point a year, which is what an ordinary array actually loses. On
+    // the old fixed 60-100 axis this was under 4% of the height: a flat line.
+    const measured = [83.0, 82.6, 82.2, 81.9, 81.5];
+
+    const [min, max] = prAxisDomain(points(measured));
+
+    const used = (83.0 - 81.5) / (max - min);
+    expect(used).toBeGreaterThan(0.25);
+  });
+
+  it("keeps the measured and expected series apart on one scale", () => {
+    // Both series are framed together, so the gap between them is a real gap
+    // rather than an artefact of each being scaled to fill its own chart.
+    const [min, max] = prAxisDomain(points([80.0, 79.8], [82.0, 81.9]));
+
+    expect(min).toBeLessThanOrEqual(80.0);
+    expect(max).toBeGreaterThanOrEqual(82.0);
+    expect((82.0 - 79.8) / (max - min)).toBeGreaterThan(0.25);
+  });
+
+  it("does not magnify a flat series into a trend", () => {
+    // The floor is the whole reason the domain is not simply [min, max]: a
+    // system with nothing happening must not be drawn as though something is.
+    expect(prAxisDomain(points([82.0, 82.0, 82.0, 82.0]))).toEqual([80, 84]);
+  });
+
+  it("holds the floor when a flat series only wobbles", () => {
+    const [min, max] = prAxisDomain(points([82.0, 82.1, 81.9, 82.0]));
+
+    expect(max - min).toBeGreaterThanOrEqual(4);
+    expect((82.1 - 81.9) / (max - min)).toBeLessThan(0.1);
+  });
+
+  it("pads proportionally once the range is already wide", () => {
+    // A wide range needs breathing room, not a fixed floor, or the outermost
+    // points would sit on the axis itself.
+    const [min, max] = prAxisDomain(points([90.0, 60.0]));
+
+    expect(min).toBeLessThan(60);
+    expect(max).toBeGreaterThan(90);
+    expect(max - min).toBeLessThan(45);
+  });
+
+  it("includes the projection, so the forecast is not drawn off the axis", () => {
+    const withProjection: PRChartPoint[] = [
+      ...points([82.0, 81.8]),
+      {
+        month: "2027",
+        pr: null,
+        expected: null,
+        projected: 74.0,
+        isAnomaly: false,
+        reason: null,
+      },
+    ];
+
+    const [min] = prAxisDomain(withProjection);
+
+    expect(min).toBeLessThanOrEqual(74.0);
+  });
+
+  it("never proposes a negative Performance Ratio", () => {
+    const [min] = prAxisDomain(points([1.0, 1.0]));
+
+    expect(min).toBe(0);
+  });
+
+  it("falls back to the old fixed axis with nothing plotted", () => {
+    expect(prAxisDomain([])).toEqual([60, 100]);
+    expect(prAxisDomain(points([null, null]))).toEqual([60, 100]);
   });
 });
